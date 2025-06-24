@@ -298,15 +298,6 @@ def plot_return_curves(
         da_obs_detrended, 'gev', params=gev_obs_detrended,
     )
     ax.plot(return_periods_obs_detrended, return_values_obs_detrended, label='AGCD', color='black', linewidth=2.0)
-    
-#    all_values = np.concatenate([
-#        return_values_model_detrended,
-#        return_values_model_detrended_bc_mean,
-#        return_values_model_detrended_bc_quantile,
-#        return_values_obs_detrended
-#    ])
-#    ymax = np.max(all_values) 
-#    ymin = np.min(all_values)
 
     ax.legend()
     ax.set_xscale('log')
