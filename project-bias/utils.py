@@ -17,6 +17,7 @@ from unseen import eva
 from unseen import bias_correction
 from unseen import time_utils
 from unseen import similarity
+from unseen import stability
 from unseen import moments
 
 
@@ -160,6 +161,13 @@ def quantile_correction(da_model_detrended_stacked, da_obs_detrended, metric):
     elif method == 'multiplicative':
         da_model_detrended_stacked_bc = da_model_detrended_stacked / af
 
+    plt.plot(quantile_array, bias, marker='o')
+    cubic_data = np.polyval(bias_cubic_fit, quantile_array)
+    plt.plot(quantile_array, cubic_data, marker='o')
+    plt.xlabel('quantile')
+    plt.ylabel(f'{method} adjustment factor')
+    plt.show()
+
     return da_model_detrended_stacked_bc
 
 
@@ -210,7 +218,7 @@ def plot_distributions(
     """Plot obs and model distributions."""
 
     fig, ax = plt.subplots(figsize=[8, 5])
-    gev_xvals = np.arange(-20, 300, 0.5)
+    gev_xvals = np.arange(-20, 300, 0.1)
 
     da_model_detrended_stacked.plot.hist(bins=40, density=True, color='tab:blue', alpha=0.5)
     shape, loc, scale = gev_model_detrended
@@ -241,6 +249,63 @@ def plot_distributions(
     plt.xlim(xmin, xmax)
     plt.legend(fontsize='small')
     #plt.savefig(f'rx1day_{location}_gevs.png', bbox_inches='tight', facecolor='white')
+    plt.show()
+
+
+def plot_return_curves(
+    metric,
+    location,
+    da_obs_detrended,
+    gev_obs_detrended,
+    da_model_detrended,
+    gev_model_detrended,
+    da_model_detrended_bc_mean,
+    gev_model_detrended_bc_mean,
+    da_model_detrended_bc_quantile,
+    gev_model_detrended_bc_quantile,
+):
+    """Plot return curves"""
+
+    fig = plt.figure(figsize=[7, 6])
+    ax = fig.add_subplot(111)
+
+    return_periods_model_detrended, return_values_model_detrended = stability.return_curve(
+        da_model_detrended, 'gev', params=gev_model_detrended,
+    )
+    ax.plot(return_periods_model_detrended, return_values_model_detrended, label='model (raw)', color='tab:blue')
+
+    return_periods_model_detrended_bc_mean, return_values_model_detrended_bc_mean = stability.return_curve(
+        da_model_detrended_bc_mean, 'gev', params=gev_model_detrended_bc_mean,
+    )
+    ax.plot(
+        return_periods_model_detrended_bc_mean,
+        return_values_model_detrended_bc_mean,
+        label='model (mean correction)',
+        color='tab:orange'
+    )
+
+    return_periods_model_detrended_bc_quantile, return_values_model_detrended_bc_quantile = stability.return_curve(
+        da_model_detrended_bc_quantile, 'gev', params=gev_model_detrended_bc_quantile,
+    )
+    ax.plot(
+        return_periods_model_detrended_bc_quantile,
+        return_values_model_detrended_bc_quantile,
+        label='model (quantile correction)',
+        color='tab:green'
+    )
+
+    return_periods_obs_detrended, return_values_obs_detrended = stability.return_curve(
+        da_obs_detrended, 'gev', params=gev_obs_detrended,
+    )
+    ax.plot(return_periods_obs_detrended, return_values_obs_detrended, label='AGCD', color='black', linewidth=2.0)
+
+    ax.legend()
+    ax.set_xscale('log')
+    ax.set_xlabel('return period (years)')
+    ax.set_ylabel(metric)
+    ax.set_title('Return periods corresponding to GEV fits')
+    #ax.set_ylim([0, 300])
+    ax.grid(which='both')
     plt.show()
 
 
