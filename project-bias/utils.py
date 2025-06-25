@@ -122,7 +122,7 @@ def _get_smooth_adjustment_factor(value, data, af_cubic_fit):
     return af
 
 
-def quantile_correction(da_model_detrended_stacked, da_obs_detrended, metric):
+def quantile_correction(da_model_detrended_stacked, da_obs_detrended, metric, plot_af=False):
     """Apply a mean correction."""
 
     methods = {'txx': 'additive', 'rx1day': 'multiplicative'}
@@ -161,12 +161,13 @@ def quantile_correction(da_model_detrended_stacked, da_obs_detrended, metric):
     elif method == 'multiplicative':
         da_model_detrended_stacked_bc = da_model_detrended_stacked / af
 
-    plt.plot(quantile_array, bias, marker='o')
-    cubic_data = np.polyval(bias_cubic_fit, quantile_array)
-    plt.plot(quantile_array, cubic_data, marker='o')
-    plt.xlabel('quantile')
-    plt.ylabel(f'{method} adjustment factor')
-    plt.show()
+    if plot_af:
+        plt.plot(quantile_array, bias, marker='o')
+        cubic_data = np.polyval(bias_cubic_fit, quantile_array)
+        plt.plot(quantile_array, cubic_data, marker='o')
+        plt.xlabel('quantile')
+        plt.ylabel(f'{method} adjustment factor')
+        plt.show()
 
     return da_model_detrended_stacked_bc
 
