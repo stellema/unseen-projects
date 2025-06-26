@@ -11,6 +11,8 @@ from scipy import stats
 import xclim as xc
 from xclim import sdba
 from xclim.sdba import nbutils
+import geopandas as gpd
+import regionmask
 
 from unseen import fileio
 from unseen import eva
@@ -349,7 +351,7 @@ def get_gev_uncertainty(da_model, reference_return_values, name):
     return ds
     
 
-def get_return_values(metric, location, model_dict):
+def get_return_values(metric, location, model_dict, similarity_check=False):
     """Get return values for each dataset."""
     
     return_values_dict = {}
@@ -357,11 +359,9 @@ def get_return_values(metric, location, model_dict):
 
     da_obs = get_obs_data(metric, location)
     da_obs_detrended, linear_data_obs = detrend_obs(da_obs)
-    gev_shape_obs_detrended, gev_loc_obs_detrended, gev_scale_obs_detrended = eva.fit_gev(da_obs_detrended.values)
+    gev_obs_detrended = list(eva.fit_gev(da_obs_detrended.values))
     return_periods, return_values_obs = stability.return_curve(
-        da_obs_detrended,
-        'gev',
-        params=[gev_shape_obs_detrended, gev_loc_obs_detrended, gev_scale_obs_detrended],
+        da_obs_detrended, 'gev', params=gev_obs_detrended,
     )
     return_values_dict[('obs', 'AGCD')] = return_values_obs
     gev_spread_obs = get_gev_uncertainty(
@@ -372,10 +372,14 @@ def get_return_values(metric, location, model_dict):
     gev_spread_dict[('obs', 'AGCD')] = gev_spread_obs
 
     for model in model_dict:
-        print(model)
+        print(f'start: {model}')
         da_model_stacked = get_model_data(metric, model, location)
         da_model_detrended, da_model_detrended_stacked, linear_data_model = detrend_model(da_model_stacked)
         da_model_detrended_stacked_bc_mean = mean_correction(da_model_detrended, da_obs_detrended, metric)
+        if similarity_check:
+            similarity_scores = similarity.similarity_tests(da_model_detrended_stacked_bc_mean.unstack(), da_obs_detrended)
+            if float(similarity_scores['ks_pval'].values) < 0.05:
+                continue
         da_model_detrended_stacked_bc_quantile = quantile_correction(da_model_detrended_stacked, da_obs_detrended, metric)
         gev_model_detrended = list(eva.fit_gev(da_model_detrended_stacked.values))
         gev_model_detrended_bc_mean = list(eva.fit_gev(da_model_detrended_stacked_bc_mean.values))
@@ -416,6 +420,7 @@ def get_return_values(metric, location, model_dict):
         gev_spread_dict[('model-raw', model)] = gev_spread_model_raw
         gev_spread_dict[('model-bc-mean', model)] = gev_spread_model_bc_mean
         gev_spread_dict[('model-bc-quantile', model)] = gev_spread_model_bc_quantile
+        print(f'end: {model}')
 
     return_values_df = pd.DataFrame(return_values_dict)
     return_values_df.index = return_periods
