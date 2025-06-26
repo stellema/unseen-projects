@@ -11,8 +11,6 @@ from scipy import stats
 import xclim as xc
 from xclim import sdba
 from xclim.sdba import nbutils
-import geopandas as gpd
-import regionmask
 
 from unseen import fileio
 from unseen import eva
@@ -42,7 +40,11 @@ def get_obs_data(metric, location):
     var = {'txx': 'tasmax', 'rx1day': 'pr'}
     obs_file = glob.glob(f'/g/data/xv83/unseen-projects/outputs/bias/data/{metric}_AGCD-CSIRO_*_AUS300i.nc')[0]
     ds_obs = fileio.open_dataset(obs_file)
-    da_obs = ds_obs[var[metric]].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
+    if type(location) == str:
+        da_obs = ds_obs[var[metric]].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
+    else:
+        lat_index, lon_index = location
+        da_obs = ds_obs[var[metric]].isel({'lat': lat_index, 'lon': lon_index})
     da_obs = da_obs.compute()
 
     return da_obs
@@ -66,7 +68,11 @@ def get_model_data(metric, model, location):
     var = {'txx': 'tasmax', 'rx1day': 'pr'}
     model_file = glob.glob(f'/g/data/xv83/unseen-projects/outputs/bias/data/{metric}_{model}-*_*_annual-jul-to-jun_AUS300i.nc')[0]
     ds_model = fileio.open_dataset(model_file)
-    da_model = ds_model[var[metric]].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
+    if type(location) == str:
+        da_model = ds_model[var[metric]].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
+    else:
+        lat_index, lon_index = location
+        da_model = ds_model[var[metric]].isel({'lat': lat_index, 'lon': lon_index})
     da_model = da_model.compute()
     da_model_stacked = da_model.dropna('lead_time').stack({'sample': ['ensemble', 'init_date', 'lead_time']})
 
