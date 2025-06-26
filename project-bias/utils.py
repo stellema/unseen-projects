@@ -328,3 +328,139 @@ def fidelity_tests(da_model_detrended, da_obs_detrended, da_model_detrended_bc):
         da_bc_fcst=da_model_detrended_bc,
     )
 
+
+def get_gev_uncertainty(da_model, reference_return_values, name):
+    """Get GEV uncertainty."""
+
+    bootstrap_samples_dict = {}
+    rng = np.random.default_rng(seed=0)
+    n_bootstraps = 100
+    for i in range(n_bootstraps):
+        boot_data = rng.choice(da_model.values, size=da_model.shape, replace=True)
+        gev_params = list(eva.fit_gev(boot_data))
+        return_periods, return_values = stability.return_curve(boot_data, 'gev', params=gev_params)
+        diff = return_values - reference_return_values
+        bootstrap_samples_dict[i] = np.abs(diff)
+    df = pd.DataFrame(bootstrap_samples_dict)
+    df.index = return_periods
+    ds = df.var(axis=1)
+    ds.name = name
+
+    return ds
+    
+
+def get_return_values(metric, location, model_dict):
+    """Get return values for each dataset."""
+    
+    return_values_dict = {}
+    gev_spread_dict = {}
+
+    da_obs = get_obs_data(metric, location)
+    da_obs_detrended, linear_data_obs = detrend_obs(da_obs)
+    gev_shape_obs_detrended, gev_loc_obs_detrended, gev_scale_obs_detrended = eva.fit_gev(da_obs_detrended.values)
+    return_periods, return_values_obs = stability.return_curve(
+        da_obs_detrended,
+        'gev',
+        params=[gev_shape_obs_detrended, gev_loc_obs_detrended, gev_scale_obs_detrended],
+    )
+    return_values_dict[('obs', 'AGCD')] = return_values_obs
+    gev_spread_obs = get_gev_uncertainty(
+        da_obs_detrended,
+        return_values_obs,
+        name=('obs', 'AGCD'),
+    )
+    gev_spread_dict[('obs', 'AGCD')] = gev_spread_obs
+
+    for model in model_dict:
+        print(model)
+        da_model_stacked = get_model_data(metric, model, location)
+        da_model_detrended, da_model_detrended_stacked, linear_data_model = detrend_model(da_model_stacked)
+        da_model_detrended_stacked_bc_mean = mean_correction(da_model_detrended, da_obs_detrended, metric)
+        da_model_detrended_stacked_bc_quantile = quantile_correction(da_model_detrended_stacked, da_obs_detrended, metric)
+        gev_model_detrended = list(eva.fit_gev(da_model_detrended_stacked.values))
+        gev_model_detrended_bc_mean = list(eva.fit_gev(da_model_detrended_stacked_bc_mean.values))
+        gev_model_detrended_bc_quantile = list(eva.fit_gev(da_model_detrended_stacked_bc_quantile.values))
+        return_periods, return_values_model_raw = stability.return_curve(
+            da_model_detrended_stacked,
+            'gev',
+            params=gev_model_detrended,
+        )
+        gev_spread_model_raw = get_gev_uncertainty(
+            da_model_detrended_stacked,
+            return_values_model_raw,
+            name=('model-raw', model),
+        )
+        return_periods, return_values_model_bc_mean = stability.return_curve(
+            da_model_detrended_stacked_bc_mean,
+            'gev',
+            params=gev_model_detrended_bc_mean,
+        )
+        gev_spread_model_bc_mean = get_gev_uncertainty(
+            da_model_detrended_stacked_bc_mean,
+            return_values_model_bc_mean,
+            name=('model-bc-mean', model),
+        )
+        return_periods, return_values_model_bc_quantile = stability.return_curve(
+            da_model_detrended_stacked_bc_quantile,
+            'gev',
+            params=gev_model_detrended_bc_quantile,
+        )
+        gev_spread_model_bc_quantile = get_gev_uncertainty(
+            da_model_detrended_stacked_bc_quantile,
+            return_values_model_bc_quantile,
+            name=('model-bc-quantile', model),
+        )
+        return_values_dict[('model-raw', model)] = return_values_model_raw
+        return_values_dict[('model-bc-mean', model)] = return_values_model_bc_mean
+        return_values_dict[('model-bc-quantile', model)] = return_values_model_bc_quantile
+        gev_spread_dict[('model-raw', model)] = gev_spread_model_raw
+        gev_spread_dict[('model-bc-mean', model)] = gev_spread_model_bc_mean
+        gev_spread_dict[('model-bc-quantile', model)] = gev_spread_model_bc_quantile
+
+    return_values_df = pd.DataFrame(return_values_dict)
+    return_values_df.index = return_periods
+    return_values_df = return_values_df.drop([1.0])
+    gev_spread_df = pd.DataFrame(gev_spread_dict)
+    gev_spread_df.index = return_periods
+    gev_spread_df = gev_spread_df.drop([1.0])
+    
+    return return_values_df, gev_spread_df
+
+
+def uncertainty_breakdown(return_df, gev_spread_df):
+    """Return curve uncertainty breakdown."""
+
+    gev_spread = gev_spread_df.filter(like='model-bc-mean').mean(axis=1)
+    G2 = gev_spread
+    G = np.sqrt(G2)
+
+    model_bc_mean_spread = return_df.filter(like='model-bc-mean').var(axis=1)
+    M2 = model_bc_mean_spread
+    M = np.sqrt(M2)
+    
+    B2_models = []
+    for bias_method, model in return_df.filter(like='model-bc-mean').columns.values:
+        B2 = return_df[[('model-bc-mean', model), ('model-bc-quantile', model)]].var(axis=1)
+        B2.name = model
+        B2_models.append(B2)
+    B2_ensemble = pd.concat(B2_models, axis=1)
+    bias_spread = B2_ensemble.mean(axis=1)
+    B2 = bias_spread
+    B = np.sqrt(B2)
+
+    T2 = G2 + M2 + B2
+    T = np.sqrt(T2)
+    F = (G + M + B) / T
+
+    ave_model_bc_mean = return_df.filter(like='model-bc-mean').mean(axis=1)
+
+    obs = return_df[('obs', 'AGCD')]
+    gev_spread_obs = gev_spread_df[('obs', 'AGCD')]
+    O2 = gev_spread_obs
+    O = np.sqrt(O2)
+
+    uncertainty = [G, M, B, T, O]
+
+    return obs, ave_model_bc_mean, uncertainty
+
+
