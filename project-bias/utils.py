@@ -110,7 +110,6 @@ def mean_correction(da_model_detrended, da_obs_detrended, metric):
         da_obs_detrended,
         method,
         time_rounding='A',
-        time_period=['1972-01-01', '2018-12-31']
     )
     da_model_detrended_bc = bias_correction.remove_bias(da_model_detrended, bias, method)
     da_model_detrended_bc = da_model_detrended_bc.compute()
