@@ -1,6 +1,7 @@
 """Utility functions."""
 
 import glob
+import logging
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -377,7 +378,7 @@ def get_return_values(metric, location, model_dict, similarity_check=False):
     gev_spread_dict[('obs', 'AGCD')] = gev_spread_obs
 
     for model in model_dict:
-        print(f'start: {model}')
+        logging.info(f'start: {model}')
         da_model_stacked = get_model_data(metric, model, location)
         da_model_detrended, da_model_detrended_stacked, linear_data_model = detrend_model(da_model_stacked)
         da_model_detrended_stacked_bc_mean = mean_correction(da_model_detrended, da_obs_detrended, metric)
@@ -425,7 +426,7 @@ def get_return_values(metric, location, model_dict, similarity_check=False):
         gev_spread_dict[('model-raw', model)] = gev_spread_model_raw
         gev_spread_dict[('model-bc-mean', model)] = gev_spread_model_bc_mean
         gev_spread_dict[('model-bc-quantile', model)] = gev_spread_model_bc_quantile
-        print(f'end: {model}')
+        logging.info(f'end: {model}')
 
     return_values_df = pd.DataFrame(return_values_dict)
     return_values_df.index = return_periods
