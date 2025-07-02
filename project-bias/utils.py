@@ -1,5 +1,5 @@
 """Utility functions."""
-
+import pdb
 import glob
 import logging
 
@@ -251,7 +251,13 @@ def plot_distributions(
 
     plt.xlabel(metric)
     plt.ylabel('probability')
-    plt.title(f'{metric} (Jul-Jun) at {location}')
+    if type(location) == str:
+        plt.title(f'{metric} (Jul-Jun) at {location}')
+    else:
+        lat_index, lon_index = location
+        lat = float(da_obs_detrended.lat)
+        lon = float(da_obs_detrended.lon)
+        plt.title(f'{metric} (Jul-Jun) at lat {lat:.1f} and lon {lon:.1f}')
 
     xmax = np.max([da_model_detrended_stacked.values.max(), da_obs_detrended.values.max()]) + 1
     xmin = np.min([da_model_detrended_stacked.values.min(), da_obs_detrended.values.min()]) - 1
