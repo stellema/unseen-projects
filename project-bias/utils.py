@@ -1,9 +1,11 @@
 """Utility functions."""
-import pdb
+
 import glob
 import logging
 
 import matplotlib.pyplot as plt
+import cartopy
+import cartopy.crs as ccrs
 import pandas as pd
 import numpy as np
 import xarray as xr
@@ -33,6 +35,9 @@ lon['Surat'] = 149.1
 
 lat['Miena'] = -42.0
 lon['Miena'] = 146.7
+
+lat_array = np.arange(-42, -11, 3)
+lon_array = np.arange(113.5, 153, 3)
 
 
 def get_obs_data(metric, location):
@@ -481,3 +486,69 @@ def uncertainty_breakdown(return_df, gev_spread_df):
     return obs, ave_model_bc_mean, uncertainty
 
 
+def highlight_grid_box(ax, target_lat_index, target_lon_index, color='tab:red'):
+    """Draw a red box around a grid point."""
+    
+    target_lat = lat_array[target_lat_index]
+    target_lon = lon_array[target_lon_index]
+    ax.plot(
+        [target_lon - 1.5, target_lon + 1.5],
+        [target_lat - 1.5, target_lat - 1.5],
+        transform=ccrs.PlateCarree(),
+        color=color,
+        lw=2.5
+    )
+    ax.plot(
+        [target_lon - 1.5, target_lon + 1.5],
+        [target_lat + 1.5, target_lat + 1.5],
+        transform=ccrs.PlateCarree(),
+        color=color,
+        lw=2.5
+    )
+    ax.plot(
+        [target_lon - 1.5, target_lon - 1.5],
+        [target_lat - 1.5, target_lat + 1.5],
+        transform=ccrs.PlateCarree(),
+        color=color,
+        lw=2.5
+    )
+    ax.plot(
+        [target_lon + 1.5, target_lon + 1.5],
+        [target_lat - 1.5, target_lat + 1.5],
+        transform=ccrs.PlateCarree(),
+        color=color,
+        lw=2.5
+    )
+
+
+def plot_grid_box(lat_index, lon_index):
+    """Highlight a grid box on a map."""
+    
+    min_lat = lat_array.min() - 1.5
+    max_lat = lat_array.max() + 1.5
+    min_lon = lon_array.min() - 1.5
+    max_lon = lon_array.max() + 1.5
+    
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
+    ax.coastlines()
+    ax.add_feature(cartopy.feature.STATES)
+    for lon in lon_array:
+        ax.plot(
+            [lon - 1.5, lon - 1.5],
+            [min_lat, max_lat],
+            transform=ccrs.PlateCarree(),
+            color='0.5',
+            lw=0.5
+        )
+    for lat in lat_array:
+        ax.plot(
+            [min_lon, max_lon],
+            [lat - 1.5, lat - 1.5],
+            transform=ccrs.PlateCarree(),
+            color='0.5',
+            lw=0.5
+        )
+    highlight_grid_box(ax, lat_array[lat_index], lon_array[lon_index])
+    ax.set_extent([min_lon, max_lon, min_lat, max_lat], crs=ccrs.PlateCarree())
+    plt.show()
