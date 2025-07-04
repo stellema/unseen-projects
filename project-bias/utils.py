@@ -549,6 +549,6 @@ def plot_grid_box(lat_index, lon_index):
             color='0.5',
             lw=0.5
         )
-    highlight_grid_box(ax, lat_array[lat_index], lon_array[lon_index])
+    highlight_grid_box(ax, lat_index, lon_index)
     ax.set_extent([min_lon, max_lon, min_lat, max_lat], crs=ccrs.PlateCarree())
     plt.show()
