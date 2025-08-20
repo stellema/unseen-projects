@@ -454,11 +454,9 @@ def uncertainty_breakdown(return_df, gev_spread_df):
 
     gev_spread = gev_spread_df.filter(like='model-bc-mean').mean(axis=1)
     G2 = gev_spread
-    G = np.sqrt(G2)
 
     model_bc_mean_spread = return_df.filter(like='model-bc-mean').var(axis=1)
     M2 = model_bc_mean_spread
-    M = np.sqrt(M2)
     
     B2_models = []
     for bias_method, model in return_df.filter(like='model-bc-mean').columns.values:
@@ -468,20 +466,16 @@ def uncertainty_breakdown(return_df, gev_spread_df):
     B2_ensemble = pd.concat(B2_models, axis=1)
     bias_spread = B2_ensemble.mean(axis=1)
     B2 = bias_spread
-    B = np.sqrt(B2)
 
     T2 = G2 + M2 + B2
-    T = np.sqrt(T2)
-    F = (G + M + B) / T
 
     ave_model_bc_mean = return_df.filter(like='model-bc-mean').mean(axis=1)
 
     obs = return_df[('obs', 'AGCD')]
     gev_spread_obs = gev_spread_df[('obs', 'AGCD')]
     O2 = gev_spread_obs
-    O = np.sqrt(O2)
 
-    uncertainty = [G, M, B, T, O]
+    uncertainty = [G2, M2, B2, T2, O2]
 
     return obs, ave_model_bc_mean, uncertainty
 

@@ -64,11 +64,11 @@ def main(args):
     return_periods = np.array([100, 1000])
     nlevels = len(return_periods)
     nlats, nlons = mask.shape
-    G_array = np.zeros([nlevels, nlats, nlons])
-    M_array = np.zeros([nlevels, nlats, nlons])
-    B_array = np.zeros([nlevels, nlats, nlons])
-    T_array = np.zeros([nlevels, nlats, nlons])
-    O_array = np.zeros([nlevels, nlats, nlons])
+    G2_array = np.zeros([nlevels, nlats, nlons])
+    M2_array = np.zeros([nlevels, nlats, nlons])
+    B2_array = np.zeros([nlevels, nlats, nlons])
+    T2_array = np.zeros([nlevels, nlats, nlons])
+    O2_array = np.zeros([nlevels, nlats, nlons])
     MMM_array = np.zeros([nlevels, nlats, nlons])
     obs_array = np.zeros([nlevels, nlats, nlons])
     nmodels_array = np.zeros([nlats, nlons])
@@ -90,35 +90,31 @@ def main(args):
             
             if nmodels >= 1:
                 obs, MMM, uncertainty = utils.uncertainty_breakdown(return_df, gev_spread_df)
-                G, M, B, T, O = uncertainty
+                G2, M2, B2, T2, O2 = uncertainty
                 for level_index, return_period in enumerate(return_periods):
-                    Gs = extract_closest_row(G, return_period)
-                    Ms = extract_closest_row(M, return_period)
-                    Bs = extract_closest_row(B, return_period)
-                    Ts = extract_closest_row(T, return_period)
-                    Os = extract_closest_row(O, return_period)
+                    G2s = extract_closest_row(G2, return_period)
+                    M2s = extract_closest_row(M2, return_period)
+                    B2s = extract_closest_row(B2, return_period)
+                    T2s = extract_closest_row(T2, return_period)
+                    O2s = extract_closest_row(O2, return_period)
                     MMMs = extract_closest_row(MMM, return_period)
                     obss = extract_closest_row(obs, return_period)
-                    GMBs = Gs + Ms + Bs
-                    Gs_pct = (Gs / GMBs) * 100
-                    Ms_pct = (Ms / GMBs) * 100
-                    Bs_pct = (Bs / GMBs) * 100
-                    G_array[level_index, lat_index, lon_index] = Gs_pct
-                    M_array[level_index, lat_index, lon_index] = Ms_pct
-                    B_array[level_index, lat_index, lon_index] = Bs_pct
-                    T_array[level_index, lat_index, lon_index] = Ts
-                    O_array[level_index, lat_index, lon_index] = Os
+                    G2_array[level_index, lat_index, lon_index] = G2s
+                    M2_array[level_index, lat_index, lon_index] = M2s
+                    B2_array[level_index, lat_index, lon_index] = B2s
+                    T2_array[level_index, lat_index, lon_index] = T2s
+                    O2_array[level_index, lat_index, lon_index] = O2s
                     MMM_array[level_index, lat_index, lon_index] = MMMs
                     obs_array[level_index, lat_index, lon_index] = obss
                     nmodels_array[lat_index, lon_index] = nmodels
             else:
                 nmodels_array[lat_index, lon_index] = nmodels
                 for level_index in range(nlevels):
-                    G_array[level_index, lat_index, lon_index] = np.nan
-                    M_array[level_index, lat_index, lon_index] = np.nan
-                    B_array[level_index, lat_index, lon_index] = np.nan
-                    T_array[level_index, lat_index, lon_index] = np.nan
-                    O_array[level_index, lat_index, lon_index] = np.nan
+                    G2_array[level_index, lat_index, lon_index] = np.nan
+                    M2_array[level_index, lat_index, lon_index] = np.nan
+                    B2_array[level_index, lat_index, lon_index] = np.nan
+                    T2_array[level_index, lat_index, lon_index] = np.nan
+                    O2_array[level_index, lat_index, lon_index] = np.nan
                     MMM_array[level_index, lat_index, lon_index] = np.nan
                     obs_array[level_index, lat_index, lon_index] = np.nan
                     
@@ -126,11 +122,11 @@ def main(args):
     units = units_dict[args.metric]
     ds_out = xr.Dataset(
         data_vars={
-            'G': (['lev', 'lat', 'lon'], G_array, {'long_name': 'GEV uncertainty fraction (model)', 'units': '%'}),
-            'M': (['lev', 'lat', 'lon'], M_array, {'long_name': 'model uncertainty fraction (model)', 'units': '%'}),
-            'B': (['lev', 'lat', 'lon'], B_array, {'long_name': 'bias correction uncertainty fraction (model)', 'units': '%'}),
-            'T': (['lev', 'lat', 'lon'], T_array, {'long_name': 'total model uncertainty (standard deviation)', 'units': units}),
-            'O': (['lev', 'lat', 'lon'], O_array, {'long_name': 'total observations uncertainty (standard deviation)', 'units': units}),
+            'G2': (['lev', 'lat', 'lon'], G2_array, {'long_name': 'GEV uncertainty (model)', 'units': units}),
+            'M2': (['lev', 'lat', 'lon'], M2_array, {'long_name': 'model uncertainty (model)', 'units': units}),
+            'B2': (['lev', 'lat', 'lon'], B2_array, {'long_name': 'bias correction uncertainty (model)', 'units': units}),
+            'T2': (['lev', 'lat', 'lon'], T2_array, {'long_name': 'total model uncertainty', 'units': units}),
+            'O2': (['lev', 'lat', 'lon'], O2_array, {'long_name': 'total observations uncertainty', 'units': units}),
             'MMM': (['lev', 'lat', 'lon'], MMM_array, {'long_name': 'multi-model mean (mean correction)', 'units': units}),
             'obs': (['lev', 'lat', 'lon'], obs_array, {'long_name': 'observations', 'units': units}),
             'nmodels': (['lat', 'lon'], nmodels_array, {'long_name': 'number of models', 'units': ' '}),
