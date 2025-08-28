@@ -8,6 +8,7 @@ normalisation and plot annotations shifted to compensate multi-line plot titles.
 """
 
 import calendar
+import cmocean
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
@@ -40,23 +41,44 @@ func_dict = {
     "minimum": np.nanmin,
     "sum": np.sum,
 }
-# Classic cyclic colormap (modified from pypalettes)
+
+# Colour blind friendly palette for each month of the year with
+# unique, but diverging HSB gradient (cool tones brighter(100, 2) & less
+# saturated (-4) than corresponding warm tones)
+# https://coolors.co/99209e-cf46a7-ff6775-eb9b52-f2df5b-effaaf-a0e496-59d171-3a9bc2-3767b3
 month_colours = [
-    # "#C7519CFF",
-    "#BA43B4FF",  # light pink
-    "#8A60B0FF",
-    "#3333FFFF",
-    "#1F83B4FF",
-    "#12A2A8FF",
-    "#2CA030FF",
-    "#78A641FF",
-    "#BCBD22FF",
-    "#FFD94AFF",
-    "#FFAA0EFF",
-    "#FF7F0EFF",
-    "#D63A3AFF",
+    "#EB9B52",  # Jan: Sandy brown
+    "#FF6775",  # Feb: Bright Pink
+    "#CF46A7",  # Mar: Mullberry
+    "#99209E",  # Apr: Mauveine
+    "#6A1A99",  # May: Purple Heart
+    "#3B35CC",  # Jun: Palatinate Blue
+    "#3767B3",  # Jul: True Blue
+    "#3A9BC2",  # Aug: Blue Green
+    "#59D171",  # Sep: Emerald
+    "#A0E496",  # Oct: Light Green
+    "#EFFAAF",  # Nov: Mindaro
+    "#F2DF5B",  # Dec: Maize
 ]
 month_cmap = mpl.colors.ListedColormap(month_colours)
+
+# Alternative colours (better for distinguishing between DJF months)
+# https://coolors.co/74309f-3b35cc-3767b3-3a9bc2-58cc6f-93e087-e8bb80-e5886c-d95b5b-bf359b
+month_colours_alt = [
+    "#BF359B",  # Jan: Fandango
+    "#74309F",  # Feb: Grape
+    "#3B35CC",  # Mar: Palatinate Blue
+    "#3767B3",  # Apr: True Blue
+    "#3A9BC2",  # May: Blue Green
+    "#59D171",  # Jun: Emerald
+    "#93E087",  # Jul: Light Green
+    "#F5FFF4",  # Aug: Honeydew
+    "#F5E693",  # Sep: Flax
+    "#E9B877",  # Oct: Earth Yellow
+    "#E5886C",  # Nov: Burnt Sienna
+    "#DF5D5D",  # Dec: Indian Red
+]
+month_cmap_alt = mpl.colors.ListedColormap(month_colours_alt)
 
 
 class InfoSet:
@@ -83,7 +105,7 @@ class InfoSet:
     date_dim : str
         Time dimension name for date range (e.g., "sample" or "time")
     kwargs : dict
-        Additional metric-specific attributes (idx, var, var_name, units, units_label, freq, cmap, cmap_anom, ticks, ticks_anom, ticks_param_trend, cbar_extend, agcd_mask)
+        Additional metric-specific attributes (idx, var, var_name, units, units_label, freq, cmap, cmap_anom, ticks, ticks_anom, ticks_param_trend, ticks_trend, cbar_extend, agcd_mask)
 
     Attributes
     ----------
@@ -167,14 +189,16 @@ class InfoSet:
             # else:
             #     self.n_samples = ds[self.var].dropna("sample", how="any")["sample"].size
             #     self.long_name += f"(samples={self.n_samples})"
-            self.long_name_with_obs = f"{self.obs_name}, {self.long_name}"
+            self.long_name_with_obs = f"{self.obs_name}, {self.name}{self.bc_label}"
         else:
             self.time_dim = "time"
             self.long_name = f"{self.name}"
-            self.title_name = f"{self.name} observational dataset"
+            self.title_name = f"{self.name} observations"
             self.long_name_with_obs = self.long_name
 
         # Format colour maps
+        if len(self.units_label) > 10:
+            self.units_label = self.units_label.replace(" [", "\n[")
         self.cmap_anom.set_bad("lightgrey")
         self.cmap.set_bad("lightgrey")
         # Set ticks to zero for small values
@@ -309,9 +333,9 @@ def resample_subsample(info, ds, time_agg, n_samples, resamples):
         dask_gufunc_kwargs=dict(output_sizes=dict(k=resamples, subsample=n_samples)),
     )
 
-    da_subsampled_agg = da_subsampled.reduce(func_dict[time_agg], dim="subsample").median(
-        "k"
-    )
+    da_subsampled_agg = da_subsampled.reduce(
+        func_dict[time_agg], dim="subsample"
+    ).median("k")
     return da_subsampled_agg
 
 
@@ -355,7 +379,14 @@ def plot_time_agg_subsampled(info, ds, obs_ds, time_agg="maximum", resamples=100
 
 
 def soft_record_metric(
-    info, da, obs_da, time_agg, metric, dparams_ns=None, covariate_base=None
+    da,
+    obs_da,
+    time_agg,
+    sr_metric,
+    plot_dict,
+    time_dim="time",
+    dparams_ns=None,
+    covariate_base=None,
 ):
     """Calculate the difference between two DataArrays."""
 
@@ -369,38 +400,47 @@ def soft_record_metric(
     anom = da_agg - obs_da_agg_regrid
 
     kwargs = dict(
-        title=f"{time_agg.capitalize()} {info.metric}\ndifference from observed",
-        cbar_label=f"Anomaly [{info.units}]",
-        cmap=info.cmap_anom,
-        ticks=info.ticks_anom,
+        title=f"{time_agg.capitalize()} {plot_dict['metric']} difference\nfrom observations",
+        cbar_label=plot_dict["units_label"],
+        cmap=plot_dict["cmap_anom"],
+        ticks=plot_dict["ticks_anom"],
+        tick_labels=None,
         cbar_extend="both",
+        tick_interval=1,
     )
 
-    if metric == "anom_std":
+    if sr_metric == "anom_std":
         obs_da_std = obs_da.reduce(np.std, dim="time")
         obs_da_std_regrid = general_utils.regrid(obs_da_std, da_agg)
         anom = anom / obs_da_std_regrid
-        kwargs["title"] = f"Standardised {time_agg} {info.metric} anomaly"
         kwargs["cbar_label"] = "Observed\nstandard deviation"
-        kwargs["ticks"] = info.ticks_anom_std  # np.arange(-40, 41, 5)
+        kwargs["ticks"] = plot_dict["ticks_anom_std"]
 
-    elif metric == "anom_pct":
+    elif sr_metric == "anom_pct":
         anom = (anom / obs_da_agg_regrid) * 100
-        kwargs["cbar_label"] = "Difference [%]"
+        kwargs["cbar_label"] = f"{plot_dict['var_name']} difference [%]"
         kwargs["title"] += " (%)"
-        kwargs["ticks"] = info.ticks_anom_pct  # np.arange(-40, 41, 5)
+        kwargs["ticks"] = plot_dict["ticks_anom_pct"]
+        kwargs["tick_interval"] = 2
 
-    elif metric == "anom_2000yr":
-        covariate = xr.DataArray([covariate_base], dims=info.time_dim)
+    elif sr_metric == "anom_2000yr":
+        covariate = xr.DataArray([covariate_base], dims=time_dim)
         rl = eva.get_return_level(2000, dparams_ns, covariate, dims=dims)
         rl = rl.squeeze()
         anom = rl / obs_da_agg_regrid
         kwargs["cbar_label"] = f"Ratio to observed {time_agg}"
         kwargs["title"] = (
-            f"Ratio of UNSEEN 2000-year {info.metric}\nto the observed {time_agg}"
+            f"Ratio of 2000-year {plot_dict['metric']}\nto the observed {time_agg}"
         )
-        kwargs["ticks"] = info.ticks_anom_ratio  # np.arange(0.6, 1.45, 0.05)
-        kwargs["vcentre"] = None
+        kwargs["ticks"] = plot_dict["ticks_anom_ratio"]
+        
+        if kwargs["ticks"][0] <= 0:
+            kwargs["extend"] = "max"
+        # if ticks arent symmetric about 1, then change cmap
+        # kwargs["vcentre"] = 1
+        if np.median(kwargs["ticks"]) != 1:
+            kwargs["cmap"] = plt.cm.viridis
+
     return anom, kwargs
 
 
@@ -436,22 +476,33 @@ def plot_obs_anom(
         Show model similarity stippling mask
     """
 
+    plot_dict = dict(
+        metric=info.metric,
+        var_name=info.var_name,
+        units=info.units,
+        units_label=info.units_label,
+        cmap_anom=info.cmap_anom,
+        ticks_anom=info.ticks_anom,
+        ticks_anom_std=info.ticks_anom_std,
+        ticks_anom_pct=info.ticks_anom_pct,
+        ticks_anom_ratio=info.ticks_anom_ratio,
+    )
+
     anom, kwargs = soft_record_metric(
-        info,
         ds[info.var],
         obs_ds[info.var],
         time_agg,
         metric,
-        dparams_ns,
-        covariate_base,
+        plot_dict,
+        time_dim=info.time_dim,
+        dparams_ns=dparams_ns,
+        covariate_base=covariate_base,
     )
-
     fig, ax = plot_acs_hazard(
         data=anom,
         stippling=mask,
         agcd_mask=info.agcd_mask,
         date_range=info.date_range_obs,
-        tick_labels=None,
         dataset_name=info.long_name_with_obs,
         outfile=f"{info.fig_dir}/{time_agg}_{metric}_{info.filestem(mask)}.png",
         **kwargs,
@@ -529,7 +580,7 @@ def plot_event_year(info, ds, time_agg="maximum", mask=None):
         date_range=info.date_range,
         cmap=cmap_dict["inferno"],
         cbar_extend="max",
-        ticks=np.arange(1960, 2026, 5),  # todo: pass as argument?
+        ticks=np.arange(1960, 2025, 5),
         tick_labels=None,
         cbar_label="",
         dataset_name=info.long_name,
@@ -553,7 +604,7 @@ def plot_gev_param_trend(info, dparams_ns, param="location", mask=None):
         Show model similarity stippling mask
     """
 
-    var_name = {"location": "loc1", "scale": "scale1"}
+    var_name = {"location": "location_1", "scale": "scale_1"}
     da = dparams_ns.sel(dparams=var_name[param])
 
     da = da * 10  # Convert to per decade
@@ -628,7 +679,7 @@ def plot_aep(info, dparams_ns, times, aep=1, mask=None):
         date_range=f"Difference between {times[0].item()} and {times[1].item()}",
         cmap=info.cmap_anom,
         cbar_extend="both",
-        ticks=info.ticks_anom,
+        ticks=info.ticks_trend,
         tick_labels=None,
         cbar_label=info.units_label,
         dataset_name=info.long_name,
@@ -701,15 +752,15 @@ def plot_obs_ari(
         Show model similarity stippling mask
     """
 
-    if not all(([ds[dim].equals(obs_ds[dim]) for dim in ["lat", "lon"]])):
+    if ds is not None and not all(
+        ([ds[dim].equals(obs_ds[dim]) for dim in ["lat", "lon"]])
+    ):
         obs_da_agg = obs_ds[info.var].reduce(func_dict[time_agg], dim="time")
         obs_da_agg = general_utils.regrid(obs_da_agg, ds[info.var])
-        cbar_label = (
-            f"Model-estimated\nannual recurrence interval\nin {covariate_base} [years]"
-        )
+        cbar_label = f"Model-estimated\naverage recurrence\ninterval in {covariate_base}\n[years]"
     else:
         obs_da_agg = obs_ds[info.var].reduce(func_dict[time_agg], dim=info.time_dim)
-        cbar_label = f"Annual recurrence\ninterval in {covariate_base} [years]"
+        cbar_label = f"Average recurrence\ninterval in {covariate_base}\n[years]"
 
     rp = xr.apply_ufunc(
         eva.get_return_period,
@@ -730,7 +781,7 @@ def plot_obs_ari(
         data=rp,
         stippling=mask,
         agcd_mask=info.agcd_mask,
-        title=f"Annual recurrence interval\nof observed {info.metric} {time_agg}",
+        title=f"Average recurrence interval\nof observed {info.metric} {time_agg}",
         date_range=info.date_range_obs,
         cmap=cmap,
         cbar_extend="max",
@@ -782,12 +833,12 @@ def plot_obs_ari_empirical(
         data=rp,
         stippling=mask,
         agcd_mask=info.agcd_mask,
-        title=f"Empirical annual recurrence\ninterval of observed\n{info.metric} {time_agg}",
+        title=f"Empirical average\nrecurrence interval of\nobserved {info.metric} {time_agg}",
         date_range=info.date_range_obs,
         cmap=cmap,
         cbar_extend="max",
         norm=LogNorm(vmin=1, vmax=10000),
-        cbar_label="Empirical annual\nrecurrence interval [years]",
+        cbar_label="Empirical\naverage recurrence\ninterval [years]",
         dataset_name=info.long_name_with_obs,
         outfile=f"{info.fig_dir}/ari_obs_empirical_{time_agg}_{info.filestem(mask)}.png",
         **plot_kwargs,
@@ -819,7 +870,9 @@ def nonstationary_new_record_probability(
 
         shape, loc, scale = eva.unpack_gev_params(dparams, covariate=covariate)
         loc, scale = loc.squeeze(), scale.squeeze()
-        annual_probability = 1 - genextreme.cdf(return_level, shape, loc=loc, scale=scale)
+        annual_probability = 1 - genextreme.cdf(
+            return_level, shape, loc=loc, scale=scale
+        )
         return annual_probability
 
     def cumulative_aep(return_level, dparams_ns, covariate):
@@ -881,7 +934,9 @@ def plot_new_record_probability(
 
     # Get the event record (return period) for the obs data
     record = obs_ds[info.var].reduce(func_dict[time_agg], dim="time")
-    if not all(([ds[dim].equals(obs_ds[dim]) for dim in ["lat", "lon"]])):
+    if ds is not None and not all(
+        ([ds[dim].equals(obs_ds[dim]) for dim in ["lat", "lon"]])
+    ):
         record = general_utils.regrid(record, ds)
     cumulative_probability = nonstationary_new_record_probability(
         record, dparams_ns, start_year, n_years, info.time_dim
@@ -897,7 +952,7 @@ def plot_new_record_probability(
         title=f"Probability of record breaking\n{info.metric} in the next {n_years} years",
         date_range=f"{start_year} to {start_year + n_years}",
         baseline=baseline,
-        cmap=plt.cm.BuPu,
+        cmap=cmocean.cm.thermal,
         cbar_extend="neither",
         ticks=tick_dict["percent"],
         cbar_label="Probability [%]",
@@ -969,7 +1024,7 @@ def plot_new_record_probability_empirical(
         agcd_mask=info.agcd_mask,
         title=f"Empirical probability of\nrecord breaking {info.metric}\nin the next {n_years} years",
         baseline=baseline,
-        cmap=plt.cm.BuPu,
+        cmap=cmocean.cm.thermal,
         cbar_extend="neither",
         ticks=tick_dict["percent"],
         cbar_label="Probability [%]",
@@ -979,16 +1034,17 @@ def plot_new_record_probability_empirical(
     )
 
 
-def combine_images(axes, outfile, files):
+def combine_images(axes, outfile, files, axis=False):
     """Combine plot files into a single figure."""
 
     for i, ax in enumerate(axes.flatten()):
-        ax.axis("off")
+
         if i >= len(files):
+            ax.axis("off")
             continue
         img = mpl.image.imread(files[i])
         ax.imshow(img)
-        ax.axis(False)
+        ax.axis(axis)
         ax.tick_params(
             axis="both",
             which="both",
@@ -1044,77 +1100,127 @@ def combine_model_plots(metric, bc, obs_name, fig_dir, n_models=12):
     files = list(fig_dir.glob(f"*{metric}*.png"))
     files = sorted(files)
 
-    # Start of figure names (these define separate figures into groups to be combined)
-    names = np.unique([re.search(f"(.+?)(?=_{metric})", f.stem).group() for f in files])
-    names = [f for f in names if "combined" not in f]
+    if metric == "txx":
+        # Drop any files with "HadGEM3-GC31-MM" (tasmax files have errors)
+        files = [f for f in files if "HadGEM3-GC31-MM" not in f.stem]
 
-    # Sort filenames into groups that start with the same names
-    fig = [
-        np.array([f for f in files if f.stem.startswith(f"{prefix}_{metric}")])
-        for prefix in names
+    # Start of figure file_prefixes (these define separate figures into groups to be combined)
+    file_prefixes = np.unique(
+        [re.search(f"(.+?)(?=_{metric})", f.stem).group() for f in files]
+    )
+    file_prefixes = [f for f in file_prefixes if "combined" not in f]
+
+    # Sort filenames into groups that start with the same string
+    file_groups = [
+        [f for f in files if f.stem.startswith(f"{prefix}_{metric}")]
+        for prefix in file_prefixes
     ]
 
-    # Filter out bias correct or masked versions of the figures
-    for i, prefix in enumerate(names):
-        if bc:
-            if any([bc in f.stem for f in fig[i]]):
-                # Keep only original or bias-corrected versions of the figures
+    # Filter by bias correction and masked versions of the figures
+    for i, prefix in enumerate(file_prefixes):
+        if bc is not None and any([bc in f.stem for f in file_groups[i]]):
+            # Keep only original or bias-corrected versions of the figures
 
-                # BC and obs
-                fig[i] = [
-                    f
-                    for f in fig[i]
-                    if (bc in f.stem) or (f"{prefix}_{metric}_{obs_name}" in f.stem)
-                ]
+            # BC and obs
+            file_groups[i] = [
+                f
+                for f in file_groups[i]
+                if (bc in f.stem) or (f"{prefix}_{metric}_{obs_name}" in f.stem)
+            ]
         else:
-            fig[i] = [f for f in fig[i] if "bias-corrected" not in f.stem]
+            file_groups[i] = [
+                f for f in file_groups[i] if "bias-corrected" not in f.stem
+            ]
 
         # Keep only masked versions of the figures
-        if any(["masked" in f.stem for f in fig[i]]):
-            fig[i] = [
+        if any(["masked" in f.stem for f in file_groups[i]]):
+            file_groups[i] = [
                 f
-                for f in fig[i]
+                for f in file_groups[i]
                 if ("masked" in f.stem) or (f"{prefix}_{metric}_{obs_name}" in f.stem)
             ]
         # Drop any drop_max versions of the figures
-        if any(["drop_max" in f.stem for f in fig[i]]):
-            fig[i] = [f for f in fig[i] if "drop_max" not in f.stem]
-        fig[i] = np.array(fig[i])
-        if "subsampled" in prefix:
-            # Add obs max to subample
-            fig[i] = [list(fig_dir.glob(f"maximum_{metric}_{obs_name}*.png"))[0], *fig[i]]
+        if any(["drop_max" in f.stem for f in file_groups[i]]):
+            file_groups[i] = [f for f in file_groups[i] if "drop_max" not in f.stem]
 
-        if len(fig[i]) == n_models:
-            # Model obs to end
-            fig[i] = [*fig[i][1:], fig[i][0]]
+        file_groups[i] = np.array(file_groups[i])
+        if "subsampled" in prefix:
+            # Add obs max to subsample
+            file_groups[i] = [
+                list(fig_dir.glob(f"maximum_{metric}_{obs_name}*.png"))[0],
+                *file_groups[i],
+            ]
+
+        if len(file_groups[i]) == n_models:
+            # !!! Shift AGCD to end
+            file_groups[i] = [*file_groups[i][1:], file_groups[i][0]]
+
+    # Some files end with numbers eg., _YYYY-YYYY.png or _YYYY.png, so split
+    # only these groups further in subgroups based on matching patterns
+    file_groups_copy = file_groups.copy()
+    file_groups = []
+    file_prefixes = []
+    for i, group in enumerate(file_groups_copy):
+        if len(group) > 0:
+            # Check if the group should be split further based on numbers after the last "_"
+            group_suffixes = np.unique([f.stem.split("_")[-1] for f in group])
+            # Drop any suffixes that dont contain 4 digits in the string
+            group_suffixes = [s for s in group_suffixes if re.search(r"\d{4}", s)]
+
+            prefix = np.unique(
+                [re.search(f"(.+?)(?=_{metric})", f.stem).group() for f in group]
+            )[0]
+            if len(group_suffixes) == 0:
+                file_groups.append(group)
+                file_prefixes.append(prefix)
+            else:
+                file_subgroups = [
+                    [f for f in group if f.stem.endswith(f"_{s}")]
+                    for s in group_suffixes
+                ]
+                for j, subgroup in enumerate(file_subgroups):
+                    file_groups.append(subgroup)
+                    file_prefixes.append(f"{prefix}_{group_suffixes[j]}")
 
     # For each file group, combine the images into a single figure
-    for i, s in enumerate(fig):
-        outfile = f"combined_{names[i]}_{metric}"
-        if bc is not None:
-            if any([bc in f.stem for f in s]):
-                outfile += f"_{bc}"
-        if any(["masked" in f.stem for f in s]):
+    for i, group in enumerate(file_groups):
+        outfile = f"combined_{file_prefixes[i]}_{metric}"
+        if bc is not None and any([bc in f.stem for f in group]):
+            outfile += f"_{bc}"
+        if any(["masked" in f.stem for f in group]):
             outfile += "_masked"
-
-        if len(s) <= n_models:
-            _, axes = plt.subplots(3, 4, figsize=[12, 10], layout="compressed")
-            combine_images(axes, fig_dir / f"{outfile}.png", s)
+        # Draw axis around these plots
+        if any(
+            [
+                kw in file_prefixes[i]
+                for kw in ["similarity", "histograms", "gev_parameters"]
+            ]
+        ):
+            axis = True
         else:
-            for j in range(3):
-                ss = fig[i][j::3]
-                year = ss[0].stem.split("_")[-1]
-                _, axes = plt.subplots(3, 4, figsize=[12, 10], layout="compressed")
-                combine_images(axes, fig_dir / f"{outfile}_{year}.png", ss)
+            axis = False
+
+        _, axes = plt.subplots(3, 4, figsize=[12, 10], layout="compressed")
+        combine_images(axes, fig_dir / f"{outfile}.png", group, axis=axis)
 
 
-# if __name__ == "__main__":
-#     # Combine model plots
-#     metric = "txx"
-#     combine_model_plots(
-#         metric=metric,
-#         bc="additive",
-#         obs_name="AGCD",
-#         fig_dir=f"/g/data/xv83/unseen-projects/outputs/{metric}/figures/",
-#         n_models=12,
-#     )
+if __name__ == "__main__":
+    # Combine model plots
+    metric = "txx"
+    for bc in ["additive", None]:
+        combine_model_plots(
+            metric=metric,
+            bc=bc,
+            obs_name="AGCD",
+            fig_dir=f"/g/data/xv83/unseen-projects/outputs/{metric}/figures/acs/combined/",
+            n_models=11,
+        )
+    metric = "rx1day"
+    for bc in ["multiplicative", None]:
+        combine_model_plots(
+            metric=metric,
+            bc=bc,
+            obs_name="AGCD",
+            fig_dir=f"/g/data/xv83/unseen-projects/outputs/{metric}/figures/acs/combined/",
+            n_models=12,
+        )
