@@ -80,35 +80,53 @@ def fix_metadata(ds, var):
     units = ds[var].attrs['units']
     for varname in dims + [var]:
         if varname in var_to_cmor_name:
-            cmor_var = var_to_cmor_name[var]
+            cmor_var = var_to_cmor_name[varname]
             ds = ds.rename({varname: cmor_var})
         else:
             cmor_var = varname
         ds[cmor_var].attrs = cmor_var_attrs[cmor_var]
     ds[cmor_var].attrs['units'] = units
+    ds['time'].attrs['axis'] = 'T'
 
     return ds
+
+
+def get_output_encoding(ds, var):
+    """Define the output file encoding."""
+
+    encoding = {}
+    ds_vars = list(ds.coords) + list(ds.keys())
+    for ds_var in ds_vars:
+        if ds_var == var:
+            encoding[ds_var] = {'_FillValue': np.float32(1e20)}
+            encoding[ds_var]['dtype'] = 'float32'
+        else:
+            encoding[ds_var] = {'_FillValue': None}
+            encoding[ds_var]['dtype'] = 'float64'
+    encoding['time']['units'] = 'days since 1940-01-01'
+
+    return encoding
 
 
 def main(args):
     """Run the program."""
 
     cmor_var = var_to_cmor_name[args.var]
-    outdir = '/g/data/xv83/unseen-projects/outputs/bias/data/'
+    outdir = '/g/data/xv83/unseen-projects/outputs/bias/data/era5'
     new_log = cmdprov.new_log()
     
     for year in np.arange(1940, 2025):
-        infiles = sorted(glob.glob(f'/g/data/rt52/era5/single-levels/reanalysis/{args.var}/2025/*.nc'))
+        infiles = sorted(glob.glob(f'/g/data/rt52/era5/single-levels/reanalysis/{args.var}/{year}/*.nc'))
         if not infiles:
             raise OSError(f'No input files for variable {args.var} and year {year}')
 
         input_ds = xr.open_mfdataset(infiles)
         if args.var == 'mx2t':
-            input_ds = input_ds.resample(time='D').max('time', keep_attrs=True)
+            output_ds = input_ds.resample(time='D').max('time', keep_attrs=True)
         elif args.var == 'tp':
-            input_ds = input_ds.resample(time='D').sum('time', keep_attrs=True)
-            assert input_ds[args.var].attrs['units'] == 'm'
-            input_ds[args.var].attrs['units'] = 'm d-1'
+            output_ds = input_ds.resample(time='D').sum('time', keep_attrs=True)
+            assert output_ds[args.var].attrs['units'] == 'm'
+            output_ds[args.var].attrs['units'] = 'm d-1'
         else:
             raise ValueError(f'Unsupported variable {args.var}')
 
@@ -118,7 +136,8 @@ def main(args):
 
         outpath = f'{outdir}/{cmor_var}_ERA5_day_gn_{year}0101-{year}1231.nc'
         print(outpath)
-        output_ds.to_netcdf(outpath)
+        encoding = get_output_encoding(output_ds, cmor_var)
+        output_ds.to_netcdf(outpath, encoding=encoding)
 
 
 if __name__ == '__main__':
