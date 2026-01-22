@@ -40,11 +40,12 @@ lat_array = np.arange(-42, -11, 3)
 lon_array = np.arange(113.5, 153, 3)
 
 
-def get_obs_data(metric, location):
+def get_obs_data(metric, location, dataset='AGCD-CSIRO'):
     """Get obs data"""
 
+    assert dataset in ['AGCD-CSIRO', 'ERA5']
     var = {'txx': 'tasmax', 'rx1day': 'pr'}
-    obs_file = glob.glob(f'/g/data/xv83/unseen-projects/outputs/bias/data/{metric}_AGCD-CSIRO_*_AUS300i.nc')[0]
+    obs_file = glob.glob(f'/g/data/xv83/unseen-projects/outputs/bias/data/{metric}_{dataset}_*_AUS300i.nc')[0]
     ds_obs = fileio.open_dataset(obs_file)
     if type(location) == str:
         da_obs = ds_obs[var[metric]].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
