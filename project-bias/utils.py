@@ -56,16 +56,21 @@ def get_obs_data(metric, location):
     return da_obs
 
 
-def detrend_obs(da_obs):
-    """Linearly detrend obs data."""
+def detrend_obs(da_obs, pivot_year=2023):
+    """Apply reference year detrending to observations.
 
-    linear_fit_obs = np.polyfit(da_obs.time.dt.year.values, da_obs.values, 1)
-    linear_data_obs = np.polyval(linear_fit_obs, da_obs.time.dt.year.values)
-    base_mean_obs = da_obs.sel(time=slice('1972-01-01', '2018-12-31')).mean().values
-    da_obs_detrended = (da_obs - linear_data_obs) + base_mean_obs
+    Reference: Atkins et al, 2025, doi:10.1038/s43247-025-02802-3
+    """
+
+    linear_fit = np.polyfit(da_obs.time.dt.year.values, da_obs.values, 1)
+    linear_data = np.polyval(linear_fit, da_obs.time.dt.year.values)
+    pivot_index = int(np.where(da_obs.time.dt.year.values == pivot_year)[0][0])
+    linear_anomaly = linear_data[pivot_index] - linear_data 
+ 
+    da_obs_detrended = da_obs + linear_anomaly
     da_obs_detrended.attrs = da_obs.attrs
 
-    return da_obs_detrended, linear_data_obs
+    return da_obs_detrended, linear_data
 
 
 def get_model_data(metric, model, location):
@@ -85,25 +90,27 @@ def get_model_data(metric, model, location):
     return da_model_stacked
 
 
-def detrend_model(da_model_stacked):
-    """linearly detrend model data."""
+def detrend_model(da_model_stacked, pivot_year=2023):
+    """Apply reference year detrending to model data.
 
-    linear_fit_model = np.polyfit(da_model_stacked.time.dt.year.values, da_model_stacked.values, 1)
-    linear_data_model = np.polyval(linear_fit_model, np.unique(da_model_stacked.time.dt.year.values))
-    da_model_stacked_base = time_utils.select_time_period(da_model_stacked.copy(), ['1972-01-01', '2018-12-31'])
-    base_mean_model = da_model_stacked_base.mean().values
+    Reference: Atkins et al, 2025, doi:10.1038/s43247-025-02802-3
+    """
+
+    linear_fit = np.polyfit(da_model_stacked.time.dt.year.values, da_model_stacked.values, 1)
+    linear_data = np.polyval(linear_fit, np.unique(da_model_stacked.time.dt.year.values))
     value_year_pairs = np.column_stack((da_model_stacked.values, da_model_stacked.time.dt.year.values))
     detrended_data = []
+    pivot_value = np.polyval(linear_fit, pivot_year)
     for value, year in value_year_pairs:
-        af = np.polyval(linear_fit_model, year)
-        detrended_value = value - af + base_mean_model
+        af = pivot_value - np.polyval(linear_fit, year)
+        detrended_value = value + af
         detrended_data.append(detrended_value)
     detrended_data = np.array(detrended_data)
     da_model_detrended_stacked = da_model_stacked * 0 + detrended_data
     da_model_detrended_stacked.attrs = da_model_stacked.attrs
     da_model_detrended = da_model_detrended_stacked.unstack()
 
-    return da_model_detrended, da_model_detrended_stacked, linear_data_model
+    return da_model_detrended, da_model_detrended_stacked, linear_data
 
 
 def mean_correction(da_model_detrended, da_obs_detrended, metric):
