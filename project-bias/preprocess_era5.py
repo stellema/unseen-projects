@@ -115,7 +115,7 @@ def main(args):
     outdir = '/g/data/xv83/unseen-projects/outputs/bias/data/era5'
     new_log = cmdprov.new_log()
     
-    for year in np.arange(1940, 2025):
+    for year in np.arange(args.start, 2025):
         infiles = sorted(glob.glob(f'/g/data/rt52/era5/single-levels/reanalysis/{args.var}/{year}/*.nc'))
         if not infiles:
             raise OSError(f'No input files for variable {args.var} and year {year}')
@@ -145,11 +145,7 @@ if __name__ == '__main__':
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )     
-    parser.add_argument(
-        "var",
-        type=str,
-        choices=('mx2t', 'tp'),
-        help="input variable"
-    )
+    parser.add_argument("var", type=str, choices=('mx2t', 'tp'), help="input variable")
+    parser.add_argument("--start", type=int, default=1940, help="start year [default = 1940]")
     args = parser.parse_args()
     main(args)
