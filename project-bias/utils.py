@@ -382,7 +382,8 @@ def get_return_values(metric, location, model_dict, similarity_check=False):
     return_values_dict = {}
     gev_spread_dict = {}
 
-    da_obs = get_obs_data(metric, location)
+    # AGCD
+    da_obs = get_obs_data(metric, location, dataset='AGCD-CSIRO')
     da_obs_detrended, linear_data_obs = detrend_obs(da_obs)
     gev_obs_detrended = list(eva.fit_gev(da_obs_detrended.values))
     return_periods, return_values_obs = stability.return_curve(
@@ -396,6 +397,19 @@ def get_return_values(metric, location, model_dict, similarity_check=False):
     )
     gev_spread_dict[('obs', 'AGCD')] = gev_spread_obs
 
+    # ERA5
+    da_era5 = get_obs_data(metric, location, dataset='ERA5')
+    da_era5_detrended, linear_data_era5 = detrend_obs(da_era5)
+    mean_era5 = float(da_era5_detrended.mean())
+    mean_obs = float(da_obs_detrended.mean())
+    da_era5_detrended_corrected = (da_era5_detrended - mean_era5) + mean_obs    
+    gev_era5_detrended_corrected = list(eva.fit_gev(da_era5_detrended_corrected.values))
+    return_periods, return_values_era5 = stability.return_curve(
+        da_era5_detrended_corrected, 'gev', params=gev_era5_detrended_corrected,
+    )
+    return_values_dict[('obs', 'ERA5')] = return_values_era5
+
+    # Models
     for model in model_dict:
         logging.info(f'start: {model}')
         da_model_stacked = get_model_data(metric, model, location)
@@ -460,6 +474,7 @@ def get_return_values(metric, location, model_dict, similarity_check=False):
 def uncertainty_breakdown(return_df, gev_spread_df):
     """Return curve uncertainty breakdown."""
 
+    # Models
     gev_spread = gev_spread_df.filter(like='model-bc-mean').mean(axis=1)
     G2 = gev_spread
 
@@ -479,11 +494,14 @@ def uncertainty_breakdown(return_df, gev_spread_df):
 
     ave_model_bc_mean = return_df.filter(like='model-bc-mean').mean(axis=1)
 
+    # Observations
     obs = return_df[('obs', 'AGCD')]
     gev_spread_obs = gev_spread_df[('obs', 'AGCD')]
-    O2 = gev_spread_obs
+    OG2 = gev_spread_obs
+    OM2 = return_df.filter(like='obs').var(axis=1)
+    OT2 = OG2 + OM2
 
-    uncertainty = [G2, M2, B2, T2, O2]
+    uncertainty = [G2, M2, B2, T2, OG2, OM2, OT2]
 
     return obs, ave_model_bc_mean, uncertainty
 
