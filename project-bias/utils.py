@@ -52,6 +52,7 @@ def get_obs_data(metric, location, dataset='AGCD-CSIRO'):
     else:
         lat_index, lon_index = location
         da_obs = ds_obs[var[metric]].isel({'lat': lat_index, 'lon': lon_index})
+    da_obs = da_obs.sel(time=slice('1940-01-01', '2025-12-31'))
     da_obs = da_obs.compute()
 
     return da_obs
