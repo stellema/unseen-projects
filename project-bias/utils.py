@@ -40,32 +40,39 @@ lat_array = np.arange(-42, -11, 3)
 lon_array = np.arange(113.5, 153, 3)
 
 
-def get_obs_data(metric, location):
+def get_obs_data(metric, location, dataset='AGCD-CSIRO'):
     """Get obs data"""
 
+    assert dataset in ['AGCD-CSIRO', 'ERA5']
     var = {'txx': 'tasmax', 'rx1day': 'pr'}
-    obs_file = glob.glob(f'/g/data/xv83/unseen-projects/outputs/bias/data/{metric}_AGCD-CSIRO_*_AUS300i.nc')[0]
+    obs_file = glob.glob(f'/g/data/xv83/unseen-projects/outputs/bias/data/{metric}_{dataset}_*_AUS300i.nc')[0]
     ds_obs = fileio.open_dataset(obs_file)
     if type(location) == str:
         da_obs = ds_obs[var[metric]].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
     else:
         lat_index, lon_index = location
         da_obs = ds_obs[var[metric]].isel({'lat': lat_index, 'lon': lon_index})
+    da_obs = da_obs.sel(time=slice('1940-01-01', '2025-12-31'))
     da_obs = da_obs.compute()
 
     return da_obs
 
 
-def detrend_obs(da_obs):
-    """Linearly detrend obs data."""
+def detrend_obs(da_obs, pivot_year=2023):
+    """Apply reference year detrending to observations.
 
-    linear_fit_obs = np.polyfit(da_obs.time.dt.year.values, da_obs.values, 1)
-    linear_data_obs = np.polyval(linear_fit_obs, da_obs.time.dt.year.values)
-    base_mean_obs = da_obs.sel(time=slice('1972-01-01', '2018-12-31')).mean().values
-    da_obs_detrended = (da_obs - linear_data_obs) + base_mean_obs
+    Reference: Atkins et al, 2025, doi:10.1038/s43247-025-02802-3
+    """
+
+    linear_fit = np.polyfit(da_obs.time.dt.year.values, da_obs.values, 1)
+    linear_data = np.polyval(linear_fit, da_obs.time.dt.year.values)
+    pivot_index = int(np.where(da_obs.time.dt.year.values == pivot_year)[0][0])
+    linear_anomaly = linear_data[pivot_index] - linear_data 
+ 
+    da_obs_detrended = da_obs + linear_anomaly
     da_obs_detrended.attrs = da_obs.attrs
 
-    return da_obs_detrended, linear_data_obs
+    return da_obs_detrended, linear_data
 
 
 def get_model_data(metric, model, location):
@@ -85,25 +92,27 @@ def get_model_data(metric, model, location):
     return da_model_stacked
 
 
-def detrend_model(da_model_stacked):
-    """linearly detrend model data."""
+def detrend_model(da_model_stacked, pivot_year=2023):
+    """Apply reference year detrending to model data.
 
-    linear_fit_model = np.polyfit(da_model_stacked.time.dt.year.values, da_model_stacked.values, 1)
-    linear_data_model = np.polyval(linear_fit_model, np.unique(da_model_stacked.time.dt.year.values))
-    da_model_stacked_base = time_utils.select_time_period(da_model_stacked.copy(), ['1972-01-01', '2018-12-31'])
-    base_mean_model = da_model_stacked_base.mean().values
+    Reference: Atkins et al, 2025, doi:10.1038/s43247-025-02802-3
+    """
+
+    linear_fit = np.polyfit(da_model_stacked.time.dt.year.values, da_model_stacked.values, 1)
+    linear_data = np.polyval(linear_fit, np.unique(da_model_stacked.time.dt.year.values))
     value_year_pairs = np.column_stack((da_model_stacked.values, da_model_stacked.time.dt.year.values))
     detrended_data = []
+    pivot_value = np.polyval(linear_fit, pivot_year)
     for value, year in value_year_pairs:
-        af = np.polyval(linear_fit_model, year)
-        detrended_value = value - af + base_mean_model
+        af = pivot_value - np.polyval(linear_fit, year)
+        detrended_value = value + af
         detrended_data.append(detrended_value)
     detrended_data = np.array(detrended_data)
     da_model_detrended_stacked = da_model_stacked * 0 + detrended_data
     da_model_detrended_stacked.attrs = da_model_stacked.attrs
     da_model_detrended = da_model_detrended_stacked.unstack()
 
-    return da_model_detrended, da_model_detrended_stacked, linear_data_model
+    return da_model_detrended, da_model_detrended_stacked, linear_data
 
 
 def mean_correction(da_model_detrended, da_obs_detrended, metric):
@@ -374,7 +383,8 @@ def get_return_values(metric, location, model_dict, similarity_check=False):
     return_values_dict = {}
     gev_spread_dict = {}
 
-    da_obs = get_obs_data(metric, location)
+    # AGCD
+    da_obs = get_obs_data(metric, location, dataset='AGCD-CSIRO')
     da_obs_detrended, linear_data_obs = detrend_obs(da_obs)
     gev_obs_detrended = list(eva.fit_gev(da_obs_detrended.values))
     return_periods, return_values_obs = stability.return_curve(
@@ -388,6 +398,19 @@ def get_return_values(metric, location, model_dict, similarity_check=False):
     )
     gev_spread_dict[('obs', 'AGCD')] = gev_spread_obs
 
+    # ERA5
+    da_era5 = get_obs_data(metric, location, dataset='ERA5')
+    da_era5_detrended, linear_data_era5 = detrend_obs(da_era5)
+    mean_era5 = float(da_era5_detrended.mean())
+    mean_obs = float(da_obs_detrended.mean())
+    da_era5_detrended_corrected = (da_era5_detrended - mean_era5) + mean_obs    
+    gev_era5_detrended_corrected = list(eva.fit_gev(da_era5_detrended_corrected.values))
+    return_periods, return_values_era5 = stability.return_curve(
+        da_era5_detrended_corrected, 'gev', params=gev_era5_detrended_corrected,
+    )
+    return_values_dict[('obs', 'ERA5')] = return_values_era5
+
+    # Models
     for model in model_dict:
         logging.info(f'start: {model}')
         da_model_stacked = get_model_data(metric, model, location)
@@ -452,6 +475,7 @@ def get_return_values(metric, location, model_dict, similarity_check=False):
 def uncertainty_breakdown(return_df, gev_spread_df):
     """Return curve uncertainty breakdown."""
 
+    # Models
     gev_spread = gev_spread_df.filter(like='model-bc-mean').mean(axis=1)
     G2 = gev_spread
 
@@ -471,11 +495,14 @@ def uncertainty_breakdown(return_df, gev_spread_df):
 
     ave_model_bc_mean = return_df.filter(like='model-bc-mean').mean(axis=1)
 
+    # Observations
     obs = return_df[('obs', 'AGCD')]
     gev_spread_obs = gev_spread_df[('obs', 'AGCD')]
-    O2 = gev_spread_obs
+    OG2 = gev_spread_obs
+    OM2 = return_df.filter(like='obs').var(axis=1)
+    OT2 = OG2 + OM2
 
-    uncertainty = [G2, M2, B2, T2, O2]
+    uncertainty = [G2, M2, B2, T2, OG2, OM2, OT2]
 
     return obs, ave_model_bc_mean, uncertainty
 

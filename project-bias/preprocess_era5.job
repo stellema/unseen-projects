@@ -1,0 +1,12 @@
+#!/bin/bash
+#PBS -P xv83
+#PBS -q normal
+#PBS -l walltime=15:00:00
+#PBS -l mem=60GB
+#PBS -l storage=gdata/xv83+gdata/rt52
+#PBS -l wd
+#PBS -v var,start
+
+# Example: qsub -v var=mx2t,start=1940 preprocess_era5.job
+
+/g/data/xv83/dbi599/miniconda3/envs/unseen/bin/python preprocess_era5.py ${var} --start ${start}
