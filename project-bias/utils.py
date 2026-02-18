@@ -357,18 +357,30 @@ def fidelity_tests(da_model_detrended, da_obs_detrended, da_model_detrended_bc):
     )
 
 
-def get_gev_uncertainty(da_model, reference_return_values, name):
+def get_gev_uncertainty(da_model, reference_return_values, name, method='parametric', n_bootstraps=100):
     """Get GEV uncertainty."""
 
+    assert method in ['parametric', 'non-parametric']
+
     bootstrap_samples_dict = {}
-    rng = np.random.default_rng(seed=0)
-    n_bootstraps = 100
-    for i in range(n_bootstraps):
-        boot_data = rng.choice(da_model.values, size=da_model.shape, replace=True)
-        gev_params = list(eva.fit_gev(boot_data))
-        return_periods, return_values = stability.return_curve(boot_data, 'gev', params=gev_params)
-        diff = return_values - reference_return_values
-        bootstrap_samples_dict[i] = np.abs(diff)
+    if method == 'parametric':
+        original_gev_params = list(eva.fit_gev(da_model.values))
+        shape, loc, scale = original_gev_params
+        sample_size = len(da_model.values)
+        for i in range(n_bootstraps):
+            boot_data = gev.rvs(shape, loc=loc, scale=scale, size=sample_size)
+            boot_gev_params = list(eva.fit_gev(boot_data))
+            return_periods, return_values = stability.return_curve(boot_data, 'gev', params=boot_gev_params)
+            bootstrap_samples_dict[i] = return_values
+    elif method == 'non-parametric':
+        bootstrap_samples_dict = {}
+        rng = np.random.default_rng(seed=0)
+        n_bootstraps = 100
+        for i in range(n_bootstraps):
+            boot_data = rng.choice(da_model.values, size=da_model.shape, replace=True)
+            gev_params = list(eva.fit_gev(boot_data))
+            return_periods, return_values = stability.return_curve(boot_data, 'gev', params=gev_params)
+            bootstrap_samples_dict[i] = return_values
     df = pd.DataFrame(bootstrap_samples_dict)
     df.index = return_periods
     ds = df.var(axis=1)
