@@ -75,6 +75,36 @@ def detrend_obs(da_obs, pivot_year=2023):
     return da_obs_detrended, linear_data
 
 
+def drop_leads(da_model, metric, model, location):
+    """Drop dependent lead times."""
+
+    fpath = '/g/data/xv83/unseen-projects/outputs/bias/data'
+
+    minlead_file = glob.glob(f'{fpath}/independence-{metric}_{model}-*_*_annual-jul-to-jun_AUS300i.nc')[0]
+    ds_minlead = fileio.open_dataset(minlead_file)
+
+    if type(location) == str:
+        min_lead = ds_minlead['min_lead'].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
+    else:
+        lat_index, lon_index = location
+        min_lead = ds_minlead['min_lead'].isel({'lat': lat_index, 'lon': lon_index})
+    
+    if model == 'CAFE':
+        min_lead1 = int(min_lead.sel({'month': 5}))
+        min_lead1 = int(np.clip(min_lead1, a_min=0, a_max=5))
+        min_lead2 = int(min_lead.sel({'month': 11}))
+        min_lead2 = int(np.clip(min_lead2, a_min=0, a_max=5))
+        month1_selection = (da_model['init_date'].dt.month == 5) & (da_model['lead_time'] >= min_lead1)
+        month2_selection = (da_model['init_date'].dt.month == 11) & (da_model['lead_time'] >= min_lead2)
+        selection = month1_selection | month2_selection
+    else:
+        min_lead = int(min_lead)
+        min_lead = int(np.clip(min_lead, a_min=0, a_max=5))
+        selection = da_model['lead_time'] >= min_lead
+
+    return da_model.where(selection)
+
+
 def get_model_data(metric, model, location, clip_lead=True):
     """Get grid point data for a single metric/model combination"""
 
@@ -84,22 +114,16 @@ def get_model_data(metric, model, location, clip_lead=True):
     model_file = glob.glob(f'{fpath}/{metric}_{model}-*_*_annual-jul-to-jun_AUS300i.nc')[0]
     ds_model = fileio.open_dataset(model_file)
 
-    minlead_file = glob.glob(f'{fpath}/independence-{metric}_{model}-*_*_annual-jul-to-jun_AUS300i.nc')[0]
-    ds_minlead = fileio.open_dataset(minlead_file)
-
     if type(location) == str:
         da_model = ds_model[var[metric]].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
-        da_minlean = ds_minlead['min_lead'].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
     else:
         lat_index, lon_index = location
         da_model = ds_model[var[metric]].isel({'lat': lat_index, 'lon': lon_index})
-        min_lead = int(ds_minlead['min_lead'].isel({'lat': lat_index, 'lon': lon_index}))
     da_model = da_model.compute()
 
     if clip_lead:
-        min_lead = int(np.clip(min_lead, a_min=0, a_max=5))
-        da_model = da_model.where(da_model['lead_time'] >= min_lead)
-    da_model_stacked = da_model.dropna('lead_time').stack({'sample': ['ensemble', 'init_date', 'lead_time']})
+        da_model = drop_leads(da_model, metric, model, location)
+    da_model_stacked = da_model.stack({'sample': ['ensemble', 'init_date', 'lead_time']}).dropna('sample')
 
     return da_model_stacked
 
