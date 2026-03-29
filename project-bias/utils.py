@@ -564,6 +564,21 @@ def uncertainty_breakdown(return_df, gev_spread_df):
     return obs, ave_model_bc_mean, uncertainty
 
 
+def obs_uncertainty_breakdown(return_df, gev_spread_df):
+    """Return curve uncertainty breakdown."""
+
+    # Observations
+    obs = return_df[('obs', 'AGCD')]
+    gev_spread_obs = gev_spread_df[('obs', 'AGCD')]
+    OG2 = gev_spread_obs
+    OM2 = return_df.filter(like='obs').var(axis=1)
+    OT2 = OG2 + OM2
+
+    uncertainty = [OG2, OM2, OT2]
+
+    return obs, uncertainty
+
+
 def highlight_grid_box(ax, target_lat_index, target_lon_index, color='tab:red'):
     """Draw a red box around a grid point."""
     
