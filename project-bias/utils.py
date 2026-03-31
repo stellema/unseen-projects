@@ -75,19 +75,55 @@ def detrend_obs(da_obs, pivot_year=2023):
     return da_obs_detrended, linear_data
 
 
-def get_model_data(metric, model, location):
+def drop_leads(da_model, metric, model, location):
+    """Drop dependent lead times."""
+
+    fpath = '/g/data/xv83/unseen-projects/outputs/bias/data'
+
+    minlead_file = glob.glob(f'{fpath}/independence-{metric}_{model}-*_*_annual-jul-to-jun_AUS300i.nc')[0]
+    ds_minlead = fileio.open_dataset(minlead_file)
+
+    if type(location) == str:
+        min_lead = ds_minlead['min_lead'].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
+    else:
+        lat_index, lon_index = location
+        min_lead = ds_minlead['min_lead'].isel({'lat': lat_index, 'lon': lon_index})
+    
+    if model == 'CAFE':
+        min_lead1 = int(min_lead.sel({'month': 5}))
+        min_lead1 = int(np.clip(min_lead1, a_min=0, a_max=5))
+        min_lead2 = int(min_lead.sel({'month': 11}))
+        min_lead2 = int(np.clip(min_lead2, a_min=0, a_max=5))
+        month1_selection = (da_model['init_date'].dt.month == 5) & (da_model['lead_time'] >= min_lead1)
+        month2_selection = (da_model['init_date'].dt.month == 11) & (da_model['lead_time'] >= min_lead2)
+        selection = month1_selection | month2_selection
+    else:
+        min_lead = int(min_lead)
+        min_lead = int(np.clip(min_lead, a_min=0, a_max=5))
+        selection = da_model['lead_time'] >= min_lead
+
+    return da_model.where(selection)
+
+
+def get_model_data(metric, model, location, clip_lead=True):
     """Get grid point data for a single metric/model combination"""
 
     var = {'txx': 'tasmax', 'rx1day': 'pr'}
-    model_file = glob.glob(f'/g/data/xv83/unseen-projects/outputs/bias/data/{metric}_{model}-*_*_annual-jul-to-jun_AUS300i.nc')[0]
+    fpath = '/g/data/xv83/unseen-projects/outputs/bias/data'
+
+    model_file = glob.glob(f'{fpath}/{metric}_{model}-*_*_annual-jul-to-jun_AUS300i.nc')[0]
     ds_model = fileio.open_dataset(model_file)
+
     if type(location) == str:
         da_model = ds_model[var[metric]].sel({'lat': lat[location], 'lon': lon[location]}, method='nearest')
     else:
         lat_index, lon_index = location
         da_model = ds_model[var[metric]].isel({'lat': lat_index, 'lon': lon_index})
     da_model = da_model.compute()
-    da_model_stacked = da_model.dropna('lead_time').stack({'sample': ['ensemble', 'init_date', 'lead_time']})
+
+    if clip_lead:
+        da_model = drop_leads(da_model, metric, model, location)
+    da_model_stacked = da_model.stack({'sample': ['ensemble', 'init_date', 'lead_time']}).dropna('sample')
 
     return da_model_stacked
 
@@ -357,18 +393,30 @@ def fidelity_tests(da_model_detrended, da_obs_detrended, da_model_detrended_bc):
     )
 
 
-def get_gev_uncertainty(da_model, reference_return_values, name):
+def get_gev_uncertainty(da_model, reference_return_values, name, method='parametric', n_bootstraps=100):
     """Get GEV uncertainty."""
 
+    assert method in ['parametric', 'non-parametric']
+
     bootstrap_samples_dict = {}
-    rng = np.random.default_rng(seed=0)
-    n_bootstraps = 100
-    for i in range(n_bootstraps):
-        boot_data = rng.choice(da_model.values, size=da_model.shape, replace=True)
-        gev_params = list(eva.fit_gev(boot_data))
-        return_periods, return_values = stability.return_curve(boot_data, 'gev', params=gev_params)
-        diff = return_values - reference_return_values
-        bootstrap_samples_dict[i] = np.abs(diff)
+    if method == 'parametric':
+        original_gev_params = list(eva.fit_gev(da_model.values))
+        shape, loc, scale = original_gev_params
+        sample_size = len(da_model.values)
+        for i in range(n_bootstraps):
+            boot_data = gev.rvs(shape, loc=loc, scale=scale, size=sample_size)
+            boot_gev_params = list(eva.fit_gev(boot_data))
+            return_periods, return_values = stability.return_curve(boot_data, 'gev', params=boot_gev_params)
+            bootstrap_samples_dict[i] = return_values
+    elif method == 'non-parametric':
+        bootstrap_samples_dict = {}
+        rng = np.random.default_rng(seed=0)
+        n_bootstraps = 100
+        for i in range(n_bootstraps):
+            boot_data = rng.choice(da_model.values, size=da_model.shape, replace=True)
+            gev_params = list(eva.fit_gev(boot_data))
+            return_periods, return_values = stability.return_curve(boot_data, 'gev', params=gev_params)
+            bootstrap_samples_dict[i] = return_values
     df = pd.DataFrame(bootstrap_samples_dict)
     df.index = return_periods
     ds = df.var(axis=1)
@@ -416,11 +464,21 @@ def get_return_values(metric, location, model_dict, similarity_check=False):
         da_model_stacked = get_model_data(metric, model, location)
         da_model_detrended, da_model_detrended_stacked, linear_data_model = detrend_model(da_model_stacked)
         da_model_detrended_stacked_bc_mean = mean_correction(da_model_detrended, da_obs_detrended, metric)
-        if similarity_check:
-            similarity_scores = similarity.similarity_tests(da_model_detrended_stacked_bc_mean.unstack(), da_obs_detrended)
-            if float(similarity_scores['ks_pval'].values) < 0.05:
-                continue
         da_model_detrended_stacked_bc_quantile = quantile_correction(da_model_detrended_stacked, da_obs_detrended, metric)
+        if similarity_check:
+            similarity_scores_raw = similarity.similarity_tests(da_model_detrended_stacked.unstack(), da_obs_detrended)
+            if float(similarity_scores_raw['ks_pval'].values) > 0.05:
+                logging.info(f'raw pass: {model}')
+            similarity_scores_mean = similarity.similarity_tests(da_model_detrended_stacked_bc_mean.unstack(), da_obs_detrended)
+            if float(similarity_scores_mean['ks_pval'].values) > 0.05:
+                logging.info(f'mean pass: {model}')
+            similarity_scores_quantile = similarity.similarity_tests(da_model_detrended_stacked_bc_quantile.unstack(), da_obs_detrended)
+            if float(similarity_scores_quantile['ks_pval'].values) > 0.05:
+                logging.info(f'quantile pass: {model}')
+            logging.info(f'end: {model}')
+            if float(similarity_scores_mean['ks_pval'].values) < 0.05:
+                continue
+
         gev_model_detrended = list(eva.fit_gev(da_model_detrended_stacked.values))
         gev_model_detrended_bc_mean = list(eva.fit_gev(da_model_detrended_stacked_bc_mean.values))
         gev_model_detrended_bc_quantile = list(eva.fit_gev(da_model_detrended_stacked_bc_quantile.values))
@@ -460,7 +518,6 @@ def get_return_values(metric, location, model_dict, similarity_check=False):
         gev_spread_dict[('model-raw', model)] = gev_spread_model_raw
         gev_spread_dict[('model-bc-mean', model)] = gev_spread_model_bc_mean
         gev_spread_dict[('model-bc-quantile', model)] = gev_spread_model_bc_quantile
-        logging.info(f'end: {model}')
 
     return_values_df = pd.DataFrame(return_values_dict)
     return_values_df.index = return_periods
@@ -505,6 +562,21 @@ def uncertainty_breakdown(return_df, gev_spread_df):
     uncertainty = [G2, M2, B2, T2, OG2, OM2, OT2]
 
     return obs, ave_model_bc_mean, uncertainty
+
+
+def obs_uncertainty_breakdown(return_df, gev_spread_df):
+    """Return curve uncertainty breakdown."""
+
+    # Observations
+    obs = return_df[('obs', 'AGCD')]
+    gev_spread_obs = gev_spread_df[('obs', 'AGCD')]
+    OG2 = gev_spread_obs
+    OM2 = return_df.filter(like='obs').var(axis=1)
+    OT2 = OG2 + OM2
+
+    uncertainty = [OG2, OM2, OT2]
+
+    return obs, uncertainty
 
 
 def highlight_grid_box(ax, target_lat_index, target_lon_index, color='tab:red'):

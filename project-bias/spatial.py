@@ -89,8 +89,9 @@ def main(args):
                 nmodels = return_df.filter(like='model-bc-mean').shape[1]
             else:
                 nmodels = np.nan
-            
-            if nmodels >= 1:
+            nmodels_array[lat_index, lon_index] = nmodels            
+
+            if nmodels >= 2:
                 obs, MMM, uncertainty = utils.uncertainty_breakdown(return_df, gev_spread_df)
                 G2, M2, B2, T2, OG2, OM2, OT2 = uncertainty
                 for level_index, return_period in enumerate(return_periods):
@@ -112,9 +113,24 @@ def main(args):
                     OT2_array[level_index, lat_index, lon_index] = OT2s
                     MMM_array[level_index, lat_index, lon_index] = MMMs
                     obs_array[level_index, lat_index, lon_index] = obss
-                    nmodels_array[lat_index, lon_index] = nmodels
-            else:
-                nmodels_array[lat_index, lon_index] = nmodels
+            elif nmodels in [0, 1]:
+                obs, uncertainty = utils.obs_uncertainty_breakdown(return_df, gev_spread_df)
+                OG2, OM2, OT2 = uncertainty
+                for level_index in range(nlevels):
+                    OG2s = extract_closest_row(OG2, return_period)
+                    OM2s = extract_closest_row(OM2, return_period)
+                    OT2s = extract_closest_row(OT2, return_period)
+                    obss = extract_closest_row(obs, return_period)
+                    G2_array[level_index, lat_index, lon_index] = np.nan
+                    M2_array[level_index, lat_index, lon_index] = np.nan
+                    B2_array[level_index, lat_index, lon_index] = np.nan
+                    T2_array[level_index, lat_index, lon_index] = np.nan
+                    OG2_array[level_index, lat_index, lon_index] = OG2s
+                    OM2_array[level_index, lat_index, lon_index] = OM2s
+                    OT2_array[level_index, lat_index, lon_index] = OT2s
+                    MMM_array[level_index, lat_index, lon_index] = np.nan
+                    obs_array[level_index, lat_index, lon_index] = obss
+            else:                    
                 for level_index in range(nlevels):
                     G2_array[level_index, lat_index, lon_index] = np.nan
                     M2_array[level_index, lat_index, lon_index] = np.nan
@@ -125,7 +141,7 @@ def main(args):
                     OT2_array[level_index, lat_index, lon_index] = np.nan
                     MMM_array[level_index, lat_index, lon_index] = np.nan
                     obs_array[level_index, lat_index, lon_index] = np.nan
-                    
+
     units_dict = {'txx': 'Celsius', 'rx1day': 'mm'}
     units = units_dict[args.metric]
     ds_out = xr.Dataset(
