@@ -1,5 +1,14 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+
 # Jupyter Notebook
 **/.ipynb_checkpoints
 
+# Ignore job file changes 
+**/*.sh
+
 # PBS job output
 **/*.sh.*
+
+# Ignore draft folder 
+drafts/
