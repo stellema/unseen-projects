@@ -1,0 +1,9 @@
+# HadEX3 annual required metadata/coord changes
+rename:
+  TXx: tasmax
+
+units:
+  tasmax: C
+
+custom_code:
+  - "ds.assign_coords({'lon': (ds['lon'] + 360)  % 360}).sortby('lon')"
