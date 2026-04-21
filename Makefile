@@ -6,11 +6,14 @@ DASK_CONFIG=/g/data/xv83/unseen-projects/code/dask_local.yml
 ENV_DIR?=/g/data/xv83/unseen-projects/unseen_venv
 FIG_DIR?=${PROJECT_DIR}/figures
 NOTEBOOK_IN_DIR?=/g/data/xv83/unseen-projects/code
-NOTEBOOK_OUT_DIR?=/g/data/xv83/unseen-projects/code\
+NOTEBOOK_OUT_DIR?=/g/data/xv83/unseen-projects/code
 OBS_LABEL?=${OBS_DATASET}
 
 GEV_TEST?=lrt
 FITSTART?=scipy_fitstart
+# Set to 0 if min_lead is passed directly, set to 1 if saved in independence file)
+USE_MIN_INDEPENDENT_LEAD_FILE?=1
+
 
 FILEIO=${ENV_DIR}/bin/fileio
 PAPERMILL=${ENV_DIR}/bin/papermill
@@ -64,6 +67,13 @@ GEV_BEST=${PROJECT_DIR}/data/gev_params_nonstationary_${GEV_TEST}_${METRIC}_${MO
 GEV_BEST_ADDITIVE_BC=${PROJECT_DIR}/data/gev_params_nonstationary_${GEV_TEST}_${METRIC}_${MODEL}-${EXPERIMENT}_${TIME_PERIOD_TEXT}_${TIMESCALE}_${REGION}_bias-corrected-${OBS_DATASET}-additive.nc
 GEV_BEST_MULTIPLICATIVE_BC=${PROJECT_DIR}/data/gev_params_nonstationary_${GEV_TEST}_${METRIC}_${MODEL}-${EXPERIMENT}_${TIME_PERIOD_TEXT}_${TIMESCALE}_${REGION}_bias-corrected-${OBS_DATASET}-multiplicative.nc
 
+# If not manually defining min_lead, add INDEPENDENCE_FILE to MIN_IND_LEAD_OPTIONS (avoids circular dependency)
+ifeq (${USE_MIN_INDEPENDENT_LEAD_FILE}, 1)
+MIN_LEAD_ARGS = --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+else
+MIN_LEAD_ARGS = ${MIN_IND_LEAD_OPTIONS}
+endif
+
 ## print all local variables (for importing variables in py scripts)
 print_file_vars :
 	$(foreach v, $(.VARIABLES), $(if $(filter file,$(origin $(v))), $(info $(v)=$($(v))))) 
@@ -115,27 +125,27 @@ ${STABILITY_PLOT_GEV} : ${METRIC_FCST}
 ## Additive bias-corrected model data file
 bias-correction-additive : ${METRIC_FCST_ADDITIVE_BC}
 ${METRIC_FCST_ADDITIVE_BC} : ${METRIC_FCST} ${METRIC_OBS}
-	${BIAS_CORRECTION} $< $(word 2,$^) ${VAR} additive $@ --base_period ${BASE_PERIOD} --rounding_freq A --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${BIAS_CORRECTION} $< $(word 2,$^) ${VAR} additive $@ --base_period ${BASE_PERIOD} --rounding_freq A ${MIN_LEAD_ARGS}
 
 ## Multiplicative bias-corrected model data file
 bias-correction-multiplicative : ${METRIC_FCST_MULTIPLICATIVE_BC}
 ${METRIC_FCST_MULTIPLICATIVE_BC} : ${METRIC_FCST} ${METRIC_OBS}
-	${BIAS_CORRECTION} $< $(word 2,$^) ${VAR} multiplicative $@ --base_period ${BASE_PERIOD} --rounding_freq A --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${BIAS_CORRECTION} $< $(word 2,$^) ${VAR} multiplicative $@ --base_period ${BASE_PERIOD} --rounding_freq A ${MIN_LEAD_ARGS}
 
 ## Similarity test between observations and model data file
 similarity-test : ${SIMILARITY_FILE}
 ${SIMILARITY_FILE} : ${METRIC_FCST} ${METRIC_OBS}
-	${SIMILARITY} $< $(word 2,$^) ${VAR} $@ --reference_time_period ${BASE_PERIOD} --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${SIMILARITY} $< $(word 2,$^) ${VAR} $@ --reference_time_period ${BASE_PERIOD} ${MIN_LEAD_ARGS}
 
 ## Similarity test between observations and additive bias-corrected model data file
 similarity-test-additive-bias : ${SIMILARITY_ADDITIVE_BC_FILE}
 ${SIMILARITY_ADDITIVE_BC_FILE} : ${METRIC_FCST_ADDITIVE_BC} ${METRIC_OBS}
-	${SIMILARITY} $< $(word 2,$^) ${VAR} $@ --reference_time_period ${BASE_PERIOD} --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${SIMILARITY} $< $(word 2,$^) ${VAR} $@ --reference_time_period ${BASE_PERIOD} ${MIN_LEAD_ARGS}
 
 ## Similarity test between observations and multiplicative bias-corrected model data file
 similarity-test-multiplicative-bias : ${SIMILARITY_MULTIPLICATIVE_BC_FILE}
 ${SIMILARITY_MULTIPLICATIVE_BC_FILE} : ${METRIC_FCST_MULTIPLICATIVE_BC} ${METRIC_OBS}
-	${SIMILARITY} $< $(word 2,$^) ${VAR} $@ --reference_time_period ${BASE_PERIOD} --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${SIMILARITY} $< $(word 2,$^) ${VAR} $@ --reference_time_period ${BASE_PERIOD} ${MIN_LEAD_ARGS}
 
 ## Moments test between observations and model data file
 moments-test : ${MOMENTS_PLOT}
@@ -165,17 +175,17 @@ ${GEV_STATIONARY_OBS_DROP_MAX} : ${METRIC_OBS}
 ## Stationary GEV parameters for model data
 gev-params-stationary : ${GEV_STATIONARY}
 ${GEV_STATIONARY} : ${METRIC_FCST}
-	${EVA} $< ${VAR} $@ --stationary ${GEV_STATIONARY_OPTIONS} --stack_dims --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${EVA} $< ${VAR} $@ --stationary ${GEV_STATIONARY_OPTIONS} --stack_dims ${MIN_LEAD_ARGS}
 
 ## Stationary GEV parameters for additive bias-corrected model dataa
 gev-params-stationary-additive-bias : ${GEV_STATIONARY_ADDITIVE_BC}
 ${GEV_STATIONARY_ADDITIVE_BC} : ${METRIC_FCST_ADDITIVE_BC}
-	${EVA} $< ${VAR} $@ --stationary ${GEV_STATIONARY_OPTIONS} --stack_dims --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${EVA} $< ${VAR} $@ --stationary ${GEV_STATIONARY_OPTIONS} --stack_dims ${MIN_LEAD_ARGS}
 
 ## Stationary GEV parameters for multiplicative bias-corrected model data
 gev-params-stationary-multiplicative-bias : ${GEV_STATIONARY_MULTIPLICATIVE_BC}
 ${GEV_STATIONARY_MULTIPLICATIVE_BC} : ${METRIC_FCST_MULTIPLICATIVE_BC}
-	${EVA} $< ${VAR} $@ --stationary ${GEV_STATIONARY_OPTIONS} --stack_dims --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${EVA} $< ${VAR} $@ --stationary ${GEV_STATIONARY_OPTIONS} --stack_dims ${MIN_LEAD_ARGS}
 
 ## Non-stationary GEV parameters for obs data
 gev-params-nonstationary-obs : ${GEV_NONSTATIONARY_OBS}
@@ -190,17 +200,17 @@ ${GEV_NONSTATIONARY_OBS_DROP_MAX} : ${METRIC_OBS}
 ## Non-stationary GEV parameters for model data
 gev-params-nonstationary : ${GEV_NONSTATIONARY}
 ${GEV_NONSTATIONARY} : ${METRIC_FCST}
-	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims ${MIN_LEAD_ARGS}
 
 ## Non-stationary GEV parameters for additive bias-corrected model data
 gev-params-nonstationary-additive-bias : ${GEV_NONSTATIONARY_ADDITIVE_BC}
 ${GEV_NONSTATIONARY_ADDITIVE_BC} : ${METRIC_FCST_ADDITIVE_BC}
-	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims ${MIN_LEAD_ARGS}
 
 ## Non-stationary GEV parameters for multiplicative bias-corrected model data
 gev-params-nonstationary-multiplicative-bias : ${GEV_NONSTATIONARY_MULTIPLICATIVE_BC}
 ${GEV_NONSTATIONARY_MULTIPLICATIVE_BC} : ${METRIC_FCST_MULTIPLICATIVE_BC}
-	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims ${MIN_LEAD_ARGS}
 
 ## Best GEV parameters for obs data
 gev-params-best-obs : ${GEV_BEST_OBS}
@@ -215,17 +225,17 @@ ${GEV_BEST_OBS_DROP_MAX} : ${METRIC_OBS}
 ## Best GEV parameters for model data
 gev-params-best : ${GEV_BEST}
 ${GEV_BEST} : ${METRIC_FCST}
-	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims --pick_best_model ${GEV_TEST} --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims --pick_best_model ${GEV_TEST} ${MIN_LEAD_ARGS}
 
 ## Best GEV parameters for additive bias-corrected model data
 gev-params-best-additive-bias : ${GEV_BEST_ADDITIVE_BC}
 ${GEV_BEST_ADDITIVE_BC} : ${METRIC_FCST_ADDITIVE_BC}
-	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims --pick_best_model ${GEV_TEST} --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims --pick_best_model ${GEV_TEST} ${MIN_LEAD_ARGS}
 
 ## Best GEV parameters for multiplicative bias-corrected model data
 gev-params-best-multiplicative-bias : ${GEV_BEST_MULTIPLICATIVE_BC}
 ${GEV_BEST_MULTIPLICATIVE_BC} : ${METRIC_FCST_MULTIPLICATIVE_BC}
-	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims --pick_best_model ${GEV_TEST} --min_lead ${INDEPENDENCE_FILE} ${MIN_IND_LEAD_OPTIONS}
+	${EVA} $< ${VAR} $@ --nonstationary ${GEV_NONSTATIONARY_OPTIONS} --stack_dims --pick_best_model ${GEV_TEST} ${MIN_LEAD_ARGS}
 
 
 ## Combined targets
