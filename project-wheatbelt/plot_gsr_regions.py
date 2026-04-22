@@ -200,7 +200,7 @@ def plot_duration_histogram_downsampled(event, n_resamples=10000, density=True):
     """
 
     # Model whisker colors
-    colors = mpl.colormaps.get_cmap("rainbow")(np.linspace(0, 1, len(models) + 1))
+    colors = mpl.colormaps.get_cmap("plasma")(np.linspace(0, 1, len(models) + 1))
 
     fig, axes = plt.subplots(2, 1, figsize=(12, 10))
     for i, ax in enumerate(axes):
@@ -217,11 +217,11 @@ def plot_duration_histogram_downsampled(event, n_resamples=10000, density=True):
         ax.bar(
             bins[:-1],
             counts_agcd,
-            color="b",
+            color="k",
             edgecolor=None,
             width=1,
             label=m,
-            alpha=0.3,
+            alpha=0.25,
         )
 
         # Downsampled model boxplots (fits all models within each bar)
@@ -258,13 +258,23 @@ def plot_duration_histogram_downsampled(event, n_resamples=10000, density=True):
         ax.set_xticks(bins[:-1])
         ax.set_xlim(bins[0] - 0.5, bins[-1] - 0.5)
         ax.set_xticklabels(bins[:-1])
-        ax.set_xlabel(f"Number of consecutive {event.name} {quantile_var} years")
+        ax.set_xlabel(f"Number of consecutive years")
 
         if density:
             ax.set_ylabel("Probability (%)")
         else:
             ax.set_ylabel("Frequency")
-        lgd = ax.legend(loc="upper right", fontsize=11)
+
+        handles, labels = ax.get_legend_handles_labels()
+        order = np.concatenate(
+            ([-1], np.arange(len(models)))
+        )  # AGCD first, then models
+        lgd = ax.legend(
+            [handles[i] for i in order],
+            [labels[i] for i in order],
+            loc="upper right",
+            fontsize=11,
+        )
 
     plt.tight_layout()
     outfile = f"{fig_dir}/{event.type}/{event.type}_duration_histogram_downsampled{'' if density else '_frequency'}.png"
@@ -446,7 +456,7 @@ def subplot_transition_histogram(ax, k, total, bins, var, alpha=1):
     ax.text(
         0.96,
         0.95,
-        f"Events={total}",
+        f"Spells={total}",
         bbox=dict(fc="white", alpha=0.8),
         horizontalalignment="right",
         verticalalignment="top",
@@ -546,7 +556,7 @@ def plot_transition_histogram_downsampled(
     dims = [d for d in ds.k.dims if d not in ["n", "x", "sample", "q", "model"]]
     ds = ds.sum(dims)
     # Model whisker colors
-    colors = mpl.colormaps.get_cmap("rainbow")(np.linspace(0, 1, len(models) + 1))
+    colors = mpl.colormaps.get_cmap("plasma")(np.linspace(0, 1, len(models) + 1))
 
     fig, ax = plt.subplots(2, 3, figsize=(12, 7), sharey=True)
     counter = 0
@@ -581,7 +591,7 @@ def plot_transition_histogram_downsampled(
                 ax[i, j].set_ylabel(None)  # only left column
             ax[i, j].set_xticklabels(["Dry", "Average", "Wet"])
             ax[i, j].set_xlim(0, 3)
-            ax[i, j].set_ylim(-1, 105)
+            ax[i, j].set_ylim(0, 105)
             counter += 1
     lines = [
         mpl.lines.Line2D([0], [0], label=m, color=c) for m, c in zip(models, colors)
@@ -1092,7 +1102,7 @@ def plot_transition_sample_size(
         constrained_layout=True,
         sharey=True,
     )
-    fig.suptitle(f"{model} {event.name} {quantile_var} Apr-Oct rainfall events")
+    fig.suptitle(f"GSR {event.alt_name} spells in {model}")
 
     # Iterate over regions (columns)
     for xi, x in enumerate(regions):
@@ -1131,7 +1141,7 @@ def plot_transition_sample_size(
                 ax[ni, xi].margins(x=0.1)
                 ax[ni, xi].set_xticks(np.arange(len(targets)) + 1)
                 ax[ni, xi].set_xticklabels(xticklabels)
-                ax[ni, xi].set_xlabel("Total number of events")
+                ax[ni, xi].set_xlabel("Total number of spells")
                 ax[ni, 0].set_ylabel("Probability (%)")  # Only left column
                 ax[ni, xi].legend(
                     bp["boxes"], ["Dry", "Average", "Wet"], loc="upper right"
@@ -1171,9 +1181,9 @@ def plot_timeseries_AGCD(dv, var="pr", anom=False, trend=False):
     _, axes = plt.subplots(2, 1, figsize=(10, 5))
 
     # Iterate for each region
-    for i, state in enumerate(["Western Australia", "South Australia"]):
+    for i, state in enumerate(["WA", "SA"]):
         axes[i].set_title(
-            f"{letters[i]}) AGCD Apr-Oct rainfall in the {state} region", loc="left"
+            f"{letters[i]}) Observed GSR anomalies in the {state} region", loc="left"
         )
 
     # Iterate for each region
@@ -1193,19 +1203,20 @@ def plot_timeseries_AGCD(dv, var="pr", anom=False, trend=False):
 
             # Plot linear trend line (solid line if p-value < 0.05)
             trend_line = np.arange(len(y)) * res.slope + res.intercept
-            if res.p >= 0.05:
-                # Not significant
-                ls = "dashed"
-                label = "Trend"
-            else:
-                ls = "solid"
-                label = "Trend (p < 0.05)"
+            # if res.p >= 0.05:
+            #     # Not significant
+            #     ls = "dashed"
+            #     label = "Trend"
+            # else:
+            ls = "solid"
+            label = "Trend"
             ax.plot(x, trend_line, color="red", lw=2, ls=ls, label=label)
             ax.legend()
 
         ax.set_ylabel(ylabel)
         ax.set_xmargin(0)
         ax.xaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
+        ax.yaxis.set_minor_locator(mpl.ticker.AutoMinorLocator())
 
     plt.tight_layout()
     plt.savefig(
@@ -1437,10 +1448,11 @@ def plot_stability_multimodel(
     - Seperate plot for each region
     - 3x3 subplot: each model in a subplot
     - Distributions by lead time or by start year
+    - Bug with overlapping titles when trying to left-align it
     """
 
     metric = "Apr-Oct rainfall"
-    units = "Apr-Oct Rainfall [mm / day]"
+    units = "Growing season rainfall [mm / day]"
 
     lead_dim = "lead_time"
     dims = ["ensemble", "init_date", lead_dim]
@@ -1461,13 +1473,17 @@ def plot_stability_multimodel(
             if stability_dim == "lead":
                 plot_dist_by_lead(ax[m], da, metric, units=units, lead_dim=lead_dim)
                 ax[m].set_title(
-                    f"({letters[m]}) {model} distribution by lead ({r} region)",
+                    f"{letters[m]}) {model} distribution by lead ({r} region)"
                 )
             elif stability_dim == "time":
                 plot_dist_by_time(ax[m], da, metric, start_years, units=units)
                 ax[m].set_title(
-                    f"({letters[m]}) {model} distribution by year ({r} region)",
+                    f"{letters[m]}) {model} distribution by year ({r} region)"
                 )
+
+            # Reduce upper x-axis limit and avoid negative lower limit (for better visibility of distributions)
+            xlim, ticks = ax[m].get_xlim(), ax[m].get_xticks()
+            ax[m].set_xlim(max(ticks[0], xlim[0]), min(ticks[-2], xlim[1]))
 
         outfile = f"{fig_dir}/stability-test-{stability_dim}_growing-season-pr-{r}.png"
         plt.tight_layout()
@@ -1480,10 +1496,23 @@ if __name__ == "__main__":
     n_resamples = 10000
     quantile_var = "tercile"
 
+    # Multi-model plots
+    plot_stability_multimodel(stability_dim="time")
+    plot_stability_multimodel(stability_dim="lead")
+
+    for event in [Events(operator="less"), Events(operator="greater")]:
+        plot_transition_probability_matrix_all_models(event)
+        plot_transition_probability_matrix_mmm(event)
+        plot_transition_probability_matrix_combined(event)
+        plot_transition_histogram_downsampled(event, n_resamples)
+        plot_duration_histogram_downsampled(event, n_resamples, density=True)
+        plot_duration_histogram_downsampled(event, n_resamples, density=False)
+
     # Dataset-specific plots
     for model in dataset_names:
         for operator in ["less", "greater"]:
             time_dim = "time" if model == "AGCD" else "lead_time"
+
             # Properties of events with different upper limits
             event = Events(n=3, operator=operator)
             event_max = Events(2, operator, fixed_duration=False)
@@ -1497,29 +1526,18 @@ if __name__ == "__main__":
                 plot_transition_probability_matrix_downsampled(dv.tercile, model, event)
                 plot_transition_sample_size(dv.tercile, model, event, n_resamples)
             else:
-                plot_transition_probability_matrix(dv.tercile, model, event, time_dim)
-                plot_timeseries_AGCD(dv, anom=True, trend=True)
+                plot_timeseries_AGCD(dv, var="pr", anom=True, trend=True)
+                plot_timeseries_AGCD(dv, var="pr", anom=False, trend=False)
                 for ev in [event_max, *events]:
                     plot_timeseries_AGCD_events(dv, ev)
 
-            plot_transition_probability_matrix(dv.tercile, model, event, time_dim)
             plot_duration_histogram(
                 dv, event_max, model, time_dim=time_dim, quantile_var="tercile"
             )
+            plot_transition_probability_matrix(dv.tercile, model, event, time_dim)
             plot_transition_histogram(dv.tercile, model, event, time_dim)
             plot_transition_pie_chart(dv.tercile, model, event, time_dim)
-
             plot_transition_duration_histogram(dv.tercile, model, event, time_dim)
-
-    # Multi-model plots
-    for event in [Events(operator="less"), Events(operator="greater")]:
-        plot_transition_probability_matrix_all_models(event)
-        plot_transition_probability_matrix_mmm(event)
-        plot_transition_histogram_downsampled(event, n_resamples)
-        plot_duration_histogram_downsampled(event, n_resamples)
-        plot_duration_histogram_downsampled(event, n_resamples, density=True)
-    plot_transition_probability_matrix_combined(event)
-    plot_stability_multimodel(stability_dim="time")
 
     # Print longest event durations for each model
     for model in models:

@@ -42,11 +42,11 @@ dataset_names = [
     # "MRI-ESM2-0", # Only 5-year hindcasts available
     "NorCPM1",
 ]
-# Exlude AGCD and list of models
+# Exclude AGCD and list of models
 models = [m for m in dataset_names if m not in ["AGCD", "MRI-ESM2-0"]]
 
 
-def convert_to_quantiles(data, q=3, core_dim="time", quantile_dims="time"):
+def convert_to_quantiles(data, q=3, core_dim="time", quantile_dims="time", bins=None):
     """Convert data values to their quantiles.
 
     Parameters
@@ -59,6 +59,8 @@ def convert_to_quantiles(data, q=3, core_dim="time", quantile_dims="time"):
         Core dimension to iterate over, by default "time"
     quantile_dims : str or list of str, optional
         Dimensions to calculate quantile bins over, by default "time"
+    bins : xr.DataArray, optional
+        Pre-calculated quantile bins. If not provided, bins will be calculated from the data.
 
     Returns
     -------
@@ -81,11 +83,14 @@ def convert_to_quantiles(data, q=3, core_dim="time", quantile_dims="time"):
 
     # Calculate bins that define the range of values in each quantile.
     # The number of bins is q+1 because the bins are the edges of the quantiles.
-    bins = data.quantile(q=np.arange(q + 1) / q, dim=quantile_dims)
+    if bins is None:
+        bins = data.quantile(q=np.arange(q + 1) / q, dim=quantile_dims)
+
     bin_labels = np.arange(1, q + 1)
 
     # Apply the bins to the data to convert to quantiles
-    # The output data has the same shape as the input data, but with values replaced by their quantile bin label
+    # The output data has the same shape as the input data, but with values
+    # replaced by their quantile bin label
     df = xr.apply_ufunc(
         cut,
         data,

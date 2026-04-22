@@ -1,4 +1,8 @@
-"""Plots maps of low/high growing season (Apr-Oct) rainfall events."""
+"""Plots maps of low/high growing season (Apr-Oct) rainfall events.
+
+- Assume shapefiles australia and aus_states_territories saved to wheatbelt/shapefiles,
+which were copied from `/g/data/ia39/aus-ref-clim-data-nci/shapefiles/data/`
+"""
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -23,6 +27,7 @@ from process_gsr_data import (
     gsr_data_aus_AGCD,
     gsr_data_aus_DCPP,
     gsr_data_regions,
+    convert_to_quantiles,
 )
 from gsr_events import Events, get_gsr_events_gridded, binom_ci, transition_probability
 
@@ -554,9 +559,15 @@ def plot_study_region_maps():
     COLOR_WA = "#E63946"
     COLOR_SA = "b"  # "#457B9D"
 
-    gdf_aus = gp.read_file(home / "shapefiles/australia.shp")
+    # Shapefiles of WA and SA station regions
     gdf_wa = gp.read_file(home / "shapefiles/crops_WA.shp")
     gdf_sa = gp.read_file(home / "shapefiles/crops_SA.shp")
+
+    # Shapes of Australia & state/territory boundaries (for minimap)
+    # NB: Not using cartopy - can't exclude other countries
+    gdf_aus = gp.read_file(home / "shapefiles/australia.shp")
+    gdf_states = gp.read_file(home / "shapefiles/aus_states_territories.shp")
+
     bounds_wa = gdf_wa.total_bounds
     bounds_sa = gdf_sa.total_bounds
 
@@ -585,9 +596,9 @@ def plot_study_region_maps():
 
     fig = plt.figure(figsize=(10, 8))
     ax = [None] * 3
-    # Main Australia map (left, bottom, width, height)
+    # Mini Australia map (left, bottom, width, height)
     ax[0] = fig.add_subplot(
-        2, 1, 1, projection=ccrs.PlateCarree(), position=[0.4, 0.4, 0.2, 0.4]
+        2, 1, 1, projection=ccrs.PlateCarree(), position=[0.4, 0.38, 0.2, 0.4]
     )
     ax[1] = fig.add_subplot(2, 2, 3, projection=ccrs.PlateCarree())
     ax[2] = fig.add_subplot(2, 2, 4, projection=ccrs.PlateCarree())
@@ -597,13 +608,14 @@ def plot_study_region_maps():
     ax[2].set_title("(b) South Australia (SA) Region")
 
     # Australia map with WA and SA regions highlighted (upper middle)
-    ax[0].add_feature(cfeature.STATES, linewidth=0.5, edgecolor="gray")
+    # ax[0].add_feature(cfeature.STATES, linewidth=0.5, edgecolor="gray")
     # ax[0].add_feature(cfeature.COASTLINE, linewidth=0.8)
-    ax[0].add_feature(cfeature.LAND, alpha=0.5)
+    ax[0].add_feature(cfeature.LAND, alpha=0.1)
     ax[0].set_extent(extent, crs=ccrs.PlateCarree())
+    ax[0] = plot_shapefile(ax[0], gdf_aus, "k", facecolor="none")  # alpha=0.1, lw=1.5)
     ax[0] = plot_shapefile(
-        ax[0], gdf_aus, "k", facecolor="none"
-    )  # , alpha=0.1, lw=1.5)
+        ax[0], gdf_states, "grey", facecolor="none", alpha=0.5, lw=0.5
+    )
     ax[0] = plot_shapefile(
         ax[0], gdf_wa, COLOR_WA, facecolor=COLOR_WA, alpha=0.4, lw=1.5
     )
@@ -745,6 +757,7 @@ if __name__ == "__main__":
     """Generate all GSR event maps for each model."""
 
     plot_study_region_maps()
+    combine_all_figures()
 
     # Iterate through datasets and low or high GSR spells
     for model in dataset_names:
@@ -830,4 +843,3 @@ if __name__ == "__main__":
             # Transition probability maps for n-year events (dry, medium & wet transition maps)
             for event in [Events(i + 1, operator) for i in range(3)]:
                 plot_transition_probability(dv.tercile, event, model, time_dim)
-    combine_all_figures()
