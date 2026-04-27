@@ -9,9 +9,10 @@ normalisation and plot annotations shifted to compensate multi-line plot titles.
 
 import calendar
 import cmocean
+import cartopy.crs as ccrs
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, LinearSegmentedColormap
 import numpy as np
 from pathlib import Path
 import re
@@ -21,19 +22,6 @@ import xarray as xr
 from unseen import eva, general_utils
 from acs_plotting_maps import plot_acs_hazard, cmap_dict, tick_dict
 
-
-plot_kwargs = dict(
-    name="ncra_regions",
-    mask_not_australia=True,
-    figsize=[6.2, 4.6],
-    xlim=(113, 153),
-    ylim=(-43, -8.5),
-    contourf=False,
-    contour=False,
-    select_area=None,
-    land_shadow=False,
-    watermark=None,
-)
 func_dict = {
     "mean": np.mean,
     "median": np.nanmedian,
@@ -42,11 +30,16 @@ func_dict = {
     "sum": np.sum,
 }
 
+# Cyclic colour map for month of year
+month_colors = plt.cm.twilight(np.linspace(0, 0.9, 12))
+month_colors = np.roll(month_colors, 2, axis=0)
+month_cmap = LinearSegmentedColormap.from_list("twilight_roll", colors=month_colors)
+
 # Colour blind friendly palette for each month of the year with
 # unique, but diverging HSB gradient (cool tones brighter(100, 2) & less
 # saturated (-4) than corresponding warm tones)
 # https://coolors.co/99209e-cf46a7-ff6775-eb9b52-f2df5b-effaaf-a0e496-59d171-3a9bc2-3767b3
-month_colours = [
+month_colours_alt = [
     "#EB9B52",  # Jan: Sandy brown
     "#FF6775",  # Feb: Bright Pink
     "#CF46A7",  # Mar: Mullberry
@@ -60,25 +53,25 @@ month_colours = [
     "#EFFAAF",  # Nov: Mindaro
     "#F2DF5B",  # Dec: Maize
 ]
-month_cmap = mpl.colors.ListedColormap(month_colours)
-
-# Alternative colours (better for distinguishing between DJF months)
-# https://coolors.co/74309f-3b35cc-3767b3-3a9bc2-58cc6f-93e087-e8bb80-e5886c-d95b5b-bf359b
-month_colours_alt = [
-    "#BF359B",  # Jan: Fandango
-    "#74309F",  # Feb: Grape
-    "#3B35CC",  # Mar: Palatinate Blue
-    "#3767B3",  # Apr: True Blue
-    "#3A9BC2",  # May: Blue Green
-    "#59D171",  # Jun: Emerald
-    "#93E087",  # Jul: Light Green
-    "#F5FFF4",  # Aug: Honeydew
-    "#F5E693",  # Sep: Flax
-    "#E9B877",  # Oct: Earth Yellow
-    "#E5886C",  # Nov: Burnt Sienna
-    "#DF5D5D",  # Dec: Indian Red
-]
 month_cmap_alt = mpl.colors.ListedColormap(month_colours_alt)
+
+# # Alternative colours (better for distinguishing between DJF months)
+# # https://coolors.co/74309f-3b35cc-3767b3-3a9bc2-58cc6f-93e087-e8bb80-e5886c-d95b5b-bf359b
+# month_colours_alt = [
+#     "#BF359B",  # Jan: Fandango
+#     "#74309F",  # Feb: Grape
+#     "#3B35CC",  # Mar: Palatinate Blue
+#     "#3767B3",  # Apr: True Blue
+#     "#3A9BC2",  # May: Blue Green
+#     "#59D171",  # Jun: Emerald
+#     "#93E087",  # Jul: Light Green
+#     "#F5FFF4",  # Aug: Honeydew
+#     "#F5E693",  # Sep: Flax
+#     "#E9B877",  # Oct: Earth Yellow
+#     "#E5886C",  # Nov: Burnt Sienna
+#     "#DF5D5D",  # Dec: Indian Red
+# ]
+# month_cmap_alt = mpl.colors.ListedColormap(month_colours_alt)
 
 
 class InfoSet:
@@ -105,7 +98,7 @@ class InfoSet:
     date_dim : str
         Time dimension name for date range (e.g., "sample" or "time")
     kwargs : dict
-        Additional metric-specific attributes (idx, var, var_name, units, units_label, freq, cmap, cmap_anom, ticks, ticks_anom, ticks_param_trend, ticks_trend, cbar_extend, agcd_mask)
+        Additional metric-specific attributes (idx, var, var_name, units, units_label, freq, cmap, cmap_anom, ticks, ticks_anom, ticks_param_trend, ticks_trend, cbar_extend, acs_map_plot_kwargs)
 
     Attributes
     ----------
@@ -264,6 +257,7 @@ def date_range_str(time, freq=None):
         year[0] -= 1  # todo: Add check for freq str starting with "YE"
     YE_ind = [year_end_month + i for i in [1, 0]]
     # Adjust for December (convert 13 to 1)
+    YE_ind[0] = 1 if YE_ind[0] == 13 else YE_ind[0]
     YE_ind[1] = 1 if YE_ind[1] == 13 else YE_ind[1]
 
     # First and last month name
@@ -296,7 +290,6 @@ def plot_time_agg(info, ds, time_agg="maximum", mask=None, savefig=True):
     fig, ax = plot_acs_hazard(
         data=da,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         title=f"{time_agg.capitalize()} {info.metric}",
         date_range=info.date_range,
         cmap=info.cmap,
@@ -307,7 +300,7 @@ def plot_time_agg(info, ds, time_agg="maximum", mask=None, savefig=True):
         dataset_name=info.long_name,
         outfile=f"{info.fig_dir}/{time_agg}_{info.filestem(mask)}.png",
         savefig=savefig,
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
 
 
@@ -364,7 +357,6 @@ def plot_time_agg_subsampled(info, ds, obs_ds, time_agg="maximum", resamples=100
         fig, ax = plot_acs_hazard(
             data=da_subsampled_agg,
             stippling=mask,
-            agcd_mask=info.agcd_mask,
             title=f"{info.metric} {time_agg} in\nobs-sized subsample\n(median of {resamples} resamples)",
             date_range=info.date_range,
             cmap=info.cmap,
@@ -374,7 +366,7 @@ def plot_time_agg_subsampled(info, ds, obs_ds, time_agg="maximum", resamples=100
             cbar_label=info.units_label,
             dataset_name=f"{info.long_name} ({resamples} x {time_agg}({n_obs_samples}-year subsample))",
             outfile=f"{info.fig_dir}/{time_agg}_subsampled_{info.filestem(mask)}.png",
-            **plot_kwargs,
+            **info.acs_map_plot_kwargs,
         )
 
 
@@ -433,7 +425,7 @@ def soft_record_metric(
             f"Ratio of 2000-year {plot_dict['metric']}\nto the observed {time_agg}"
         )
         kwargs["ticks"] = plot_dict["ticks_anom_ratio"]
-        
+
         if kwargs["ticks"][0] <= 0:
             kwargs["extend"] = "max"
         # if ticks arent symmetric about 1, then change cmap
@@ -501,12 +493,11 @@ def plot_obs_anom(
     fig, ax = plot_acs_hazard(
         data=anom,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         date_range=info.date_range_obs,
         dataset_name=info.long_name_with_obs,
         outfile=f"{info.fig_dir}/{time_agg}_{metric}_{info.filestem(mask)}.png",
         **kwargs,
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
 
 
@@ -534,7 +525,6 @@ def plot_event_month_mode(info, ds, mask=None):
     fig, ax = plot_acs_hazard(
         data=da,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         title=f"{info.metric} most common month",
         date_range=info.date_range,
         cmap=month_cmap,
@@ -544,11 +534,11 @@ def plot_event_month_mode(info, ds, mask=None):
         cbar_label="",
         dataset_name=info.long_name,
         outfile=f"{info.fig_dir}/month_mode_{info.filestem(mask)}.png",
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
 
 
-def plot_event_year(info, ds, time_agg="maximum", mask=None):
+def plot_event_year(info, ds, time_agg="maximum", mask=None, ticks=np.arange(1960, 2025, 5)):
     """Plot map of the year of the maximum or minimum event.
 
     Parameters
@@ -575,17 +565,16 @@ def plot_event_year(info, ds, time_agg="maximum", mask=None):
     fig, ax = plot_acs_hazard(
         data=da,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         title=f"Year of {time_agg} {info.metric}",
         date_range=info.date_range,
         cmap=cmap_dict["inferno"],
         cbar_extend="max",
-        ticks=np.arange(1960, 2025, 5),
+        ticks=ticks,
         tick_labels=None,
         cbar_label="",
         dataset_name=info.long_name,
         outfile=f"{info.fig_dir}/year_{time_agg}_{info.filestem(mask)}.png",
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
 
 
@@ -612,7 +601,6 @@ def plot_gev_param_trend(info, dparams_ns, param="location", mask=None):
     fig, ax = plot_acs_hazard(
         data=da,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         title=f"{info.metric} GEV distribution\n{param} parameter trend",
         date_range=info.date_range,
         cmap=cmap_dict["anom"],
@@ -621,7 +609,7 @@ def plot_gev_param_trend(info, dparams_ns, param="location", mask=None):
         cbar_label=f"{param.capitalize()} parameter\n[{info.units} / decade]",
         dataset_name=info.long_name,
         outfile=f"{info.fig_dir}/gev_{param}_trend_{info.filestem(mask)}.png",
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
 
 
@@ -654,7 +642,6 @@ def plot_aep(info, dparams_ns, times, aep=1, mask=None):
         fig, ax = plot_acs_hazard(
             data=da_aep.isel({info.time_dim: i}),
             stippling=mask,
-            agcd_mask=info.agcd_mask,
             title=f"{info.metric} {aep}% annual\nexceedance probability",
             date_range=time,
             cmap=info.cmap,
@@ -664,7 +651,7 @@ def plot_aep(info, dparams_ns, times, aep=1, mask=None):
             cbar_label=info.units_label,
             dataset_name=info.long_name,
             outfile=f"{info.fig_dir}/aep_{aep:g}pct_{info.filestem(mask)}_{time}.png",
-            **plot_kwargs,
+            **info.acs_map_plot_kwargs,
         )
 
     # Time difference (i.e., change in return level)
@@ -674,7 +661,6 @@ def plot_aep(info, dparams_ns, times, aep=1, mask=None):
     fig, ax = plot_acs_hazard(
         data=da,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         title=f"Change in {info.metric} {aep}%\nannual exceedance probability",
         date_range=f"Difference between {times[0].item()} and {times[1].item()}",
         cmap=info.cmap_anom,
@@ -684,7 +670,7 @@ def plot_aep(info, dparams_ns, times, aep=1, mask=None):
         cbar_label=info.units_label,
         dataset_name=info.long_name,
         outfile=f"{info.fig_dir}/aep_{aep:g}pct_{info.filestem(mask)}_{times[0].item()}-{times[1].item()}.png",
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
 
 
@@ -709,7 +695,6 @@ def plot_aep_empirical(info, ds, aep=1, mask=None):
     fig, ax = plot_acs_hazard(
         data=da_aep,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         title=f"{info.metric} empirical {aep}%\nannual exceedance probability",
         date_range=info.date_range,
         cmap=info.cmap,
@@ -719,7 +704,7 @@ def plot_aep_empirical(info, ds, aep=1, mask=None):
         cbar_label=info.units_label,
         dataset_name=info.long_name,
         outfile=f"{info.fig_dir}/aep_empirical_{aep:g}pct_{info.filestem(mask)}.png",
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
 
 
@@ -780,7 +765,6 @@ def plot_obs_ari(
     fig, ax = plot_acs_hazard(
         data=rp,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         title=f"Average recurrence interval\nof observed {info.metric} {time_agg}",
         date_range=info.date_range_obs,
         cmap=cmap,
@@ -789,7 +773,7 @@ def plot_obs_ari(
         cbar_label=cbar_label,
         dataset_name=info.long_name_with_obs,
         outfile=f"{info.fig_dir}/ari_obs_{time_agg}_{info.filestem(mask)}.png",
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
     return
 
@@ -832,7 +816,6 @@ def plot_obs_ari_empirical(
     fig, ax = plot_acs_hazard(
         data=rp,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         title=f"Empirical average\nrecurrence interval of\nobserved {info.metric} {time_agg}",
         date_range=info.date_range_obs,
         cmap=cmap,
@@ -841,7 +824,7 @@ def plot_obs_ari_empirical(
         cbar_label="Empirical\naverage recurrence\ninterval [years]",
         dataset_name=info.long_name_with_obs,
         outfile=f"{info.fig_dir}/ari_obs_empirical_{time_agg}_{info.filestem(mask)}.png",
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
     return
 
@@ -922,7 +905,7 @@ def plot_new_record_probability(
         Model dataset
     dparams_ns : xarray.DataArray
         Non-stationary GEV parameters
-    covariate_base : int
+    start_year : int
         Covariate for non-stationary GEV parameters (e.g., single year)
     time_agg : {"mean", "median", "maximum", "minimum", "sum"}
         Time aggregation function name
@@ -948,7 +931,6 @@ def plot_new_record_probability(
     fig, ax = plot_acs_hazard(
         data=cumulative_probability * 100,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         title=f"Probability of record breaking\n{info.metric} in the next {n_years} years",
         date_range=f"{start_year} to {start_year + n_years}",
         baseline=baseline,
@@ -958,7 +940,7 @@ def plot_new_record_probability(
         cbar_label="Probability [%]",
         dataset_name=info.long_name_with_obs,
         outfile=f"{info.fig_dir}/new_record_probability_{n_years}-year_{info.filestem(mask)}.png",
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
 
 
@@ -1021,7 +1003,6 @@ def plot_new_record_probability_empirical(
     fig, ax = plot_acs_hazard(
         data=cumulative_probability * 100,
         stippling=mask,
-        agcd_mask=info.agcd_mask,
         title=f"Empirical probability of\nrecord breaking {info.metric}\nin the next {n_years} years",
         baseline=baseline,
         cmap=cmocean.cm.thermal,
@@ -1030,7 +1011,7 @@ def plot_new_record_probability_empirical(
         cbar_label="Probability [%]",
         dataset_name=info.long_name_with_obs,
         outfile=f"{info.fig_dir}/new_record_probability_{n_years}-year_empirical_{info.filestem(mask)}.png",
-        **plot_kwargs,
+        **info.acs_map_plot_kwargs,
     )
 
 
