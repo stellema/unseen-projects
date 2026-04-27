@@ -3,4 +3,5 @@
 rename:
   latitude: lat
   longitude: lon
-
+  mx2t: tasmax
+  tp: pr
